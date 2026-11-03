@@ -18,7 +18,6 @@ from kp_sync.history import (
 )
 from kp_sync.paths import atomic_write
 
-
 SCHEMA_VERSION = 2
 
 

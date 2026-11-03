@@ -6,7 +6,6 @@ import struct
 from dataclasses import dataclass
 from pathlib import Path
 
-
 SIGNATURE_1 = bytes.fromhex("03d9a29a")
 SIGNATURE_2 = bytes.fromhex("67fb4bb5")
 

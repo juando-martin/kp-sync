@@ -6,7 +6,6 @@ from pathlib import Path
 from lxml import etree
 from pykeepass import PyKeePass
 
-
 _VOLATILE_TAGS = {
     "LastAccessTime",
     "UsageCount",

@@ -12,7 +12,6 @@ from unittest.mock import Mock, patch
 
 from tools import docs
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

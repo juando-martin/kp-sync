@@ -18,7 +18,6 @@ from kp_sync.keepassxc import (
     retrieve,
 )
 
-
 HAS_CLIENT = importlib.util.find_spec("keepassxc_proxy_client") is not None
 
 

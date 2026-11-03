@@ -7,7 +7,6 @@ import stat
 from pathlib import Path
 from typing import TextIO
 
-
 _log_file: TextIO | None = None
 _log_lock = threading.Lock()
 

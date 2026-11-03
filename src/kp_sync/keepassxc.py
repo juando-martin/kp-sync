@@ -19,7 +19,6 @@ from kp_sync.log import info
 from kp_sync.paths import atomic_write, ensure_private_directory
 from kp_sync.pending import _read_private_json
 
-
 MAX_REPLY = 1024 * 1024
 
 

@@ -13,7 +13,6 @@ from kp_sync.pending import PendingStore
 from kp_sync.sessions.records import SessionStore
 from kp_sync.state import HistoryState
 
-
 _BASE = re.compile(r"[0-9a-f]{64}\.kdbx\Z")
 
 

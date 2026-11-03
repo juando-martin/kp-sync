@@ -645,7 +645,11 @@ class SessionSelfTest(unittest.TestCase):
             (work / "received").write_bytes(payload)
             SessionStore(self.runtime / "diagnostics").staging_path(
                 rec.id
-            ).joinpath("challenge",).write_bytes(payload)
+            ).joinpath(
+                "challenge",
+            ).write_bytes(
+                payload
+            )
         return SimpleNamespace(returncode=0)
 
     def run_test(self, runner=None):

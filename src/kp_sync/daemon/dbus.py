@@ -8,7 +8,6 @@ import subprocess
 from collections.abc import Callable, Mapping
 from typing import Any
 
-
 KEEPASSXC_NAME = "org.keepassxc.KeePassXC.MainWindow"
 
 

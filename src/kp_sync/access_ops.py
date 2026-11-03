@@ -14,7 +14,6 @@ from kp_sync.kdbx import KdbxError, inspect_kdbx
 from kp_sync.lock import file_lock
 from kp_sync.paths import atomic_write, ensure_private_directory
 
-
 ACCESS_IDENTITY = "session:kp-access"
 ACCESS_IDENTITY_PREFIX = "session:kp-access:"
 ACCESS_LEASE = "access:kp-access"

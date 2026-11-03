@@ -16,7 +16,6 @@ from pykeepass.exceptions import CredentialsError
 from kp_sync.ui.base import UI
 from kp_sync.paths import atomic_write
 
-
 _ENTITY_IGNORED = {"History", "Times"}
 _SPECIAL_KEYS = {"String", "Binary"}
 _SECRET_KEYS = {"password", "otp", "totp", "recovery codes"}

@@ -6,7 +6,6 @@ import socket
 import struct
 import threading
 
-
 VERSION = 1
 MAX_MESSAGE = 1024 * 1024
 COMMANDS = {

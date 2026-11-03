@@ -21,7 +21,6 @@ from linux_keyctl import (
 from kp_sync.config import Config
 from kp_sync.ui.base import UI
 
-
 # Before profiles had their own keys, every profile shared this one.
 LEGACY_DESCRIPTION = b"kp-sync:password"
 # VIEW lets `forget` find a profile's copy keys by description.

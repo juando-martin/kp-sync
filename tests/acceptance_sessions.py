@@ -41,7 +41,6 @@ from kp_sync.sessions.session import (
 )
 from kp_sync.ui.none import NoneUI
 
-
 HOST = "remote.example"
 MOUNT = "~/kp-test"
 PORT = 2223
