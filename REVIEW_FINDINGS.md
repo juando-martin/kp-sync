@@ -23,11 +23,14 @@ hashes, the kp-access bridge and operations, session `authorized_keys`
 editing and `sftp-serve` confinement, credential caching and the rclone
 endpoint.
 
-Not yet reviewed in detail: code new in `v0.2.0` (`drive-sync`,
-`rclone_credentials.py`, the daemon credential watch and draining, and
-`service install|enable|disable|uninstall daemon`), plus `daemon/server.py`,
-`merge.py`, `sessions/session.py`, `config.py`, `integration.py` and the UI
-modules.
+Also read: every source change from `db06c97` to `v0.2.0`
+(`drive_sync.py`, `rclone_credentials.py`, the daemon credential watch and
+draining, rclone endpoint and engine hooks, pendrive history retention, and
+`service install|enable|disable|uninstall daemon`).
+
+Not yet reviewed in detail: the unchanged parts of `daemon/server.py`,
+`merge.py`, `sessions/session.py`, `config.py` and `integration.py`, and
+the UI modules.
 
 Test run on `beta` at `v0.2.0`: 443 tests, 3 failures and 9 errors, all
 from F1–F3 (environmental, not product defects).
@@ -134,6 +137,57 @@ that timestamps alone do not establish content identity. Fix: take the
 shortcut only when the token includes a content hash, and document that a
 command `probe` must change whenever content changes.
 
+## Code new in v0.2.0
+
+### F8. Private rclone copy is not protected across processes (plausible)
+
+`RcloneCredentials.refresh()` and `finish()`
+(`src/kp_sync/rclone_credentials.py:81-141`) require that no rclone process
+of the profile is running, because rclone writes refreshed tokens back to
+the file named by `--config`. That holds only inside one process: the
+engine calls them under its sync lock (`engine.py`, `begin_run`/`end_run`),
+and the daemon's `_watch_credentials` (`daemon/server.py:347-367`) drains
+only when its own sync gate is idle. Other processes use the same private
+copy without that lock:
+
+- `kp-sync history` loads cloud history through it with no lock
+  (`history_command.py:38-48`);
+- `doctor` calls `refresh()` directly with no lock
+  (`integration.py:1133`).
+
+Failure scenarios:
+
+- **Refresh during another process's run:** a refresh imports a new
+  provider file while a parallel rclone still holds the old one. That
+  rclone then writes its refreshed token from the old config over the
+  import. `.source` already records the new digest, so the newer config is
+  never imported again until the provider changes it once more. This
+  matters when the update was a re-authorization; Google Drive refresh
+  tokens don't rotate, so an old copy usually keeps working.
+- **Drain during another process's run:** a drain deletes the copy while a
+  parallel rclone is running. If that rclone later saves a token, it
+  recreates the copy (udevmon proposal R3), so credentials survive after
+  the drive is removed until the next drain.
+
+Fix: serialize every rclone invocation and every refresh/finish/discard of
+a profile's copy under one lock: a dedicated `rclone-credentials.lock`,
+shared for rclone runs and exclusive for refresh and drain.
+
+### F9. A pendrive history failure fails the whole sync (plausible)
+
+Since `v0.1.3`, `BaselineManager.save` publishes to the primary cloud and
+then every attached writable pendrive in one loop, re-raising any store
+error (`baseline.py:406-462`). The engine commits runtime state before
+calling it and does not catch the error, so `_finish_inflight_candidates`,
+`_prune_cached_bases`, `_clear_pending` and `_finish_write_race` are
+skipped and the run reports failure. A pulled drive surfaces as
+`BaselineChanged` and the run restarts cleanly, but a persistent drive
+error (exFAT full, read-only remount, I/O error) makes every sync fail
+while that drive is attached, even though the cloud publish succeeded.
+Fix: treat pendrive replicas as best-effort after the primary target
+(record a `failed:` publication outcome and continue), keeping the
+existing behavior when a drive is the only reachable store.
+
 ## Minor
 
 ### F6. KeePassXC reload setting read from one fixed path (confirmed)
@@ -173,3 +227,14 @@ versions in an isolated environment.
   argv; keys are secured or revoked on failure.
 - Drive role selection (fixed in `v0.2.0`): `drive-sync` requires
   `--mode main|secondary`, and `~/.dynamic_config` is no longer used.
+- `drive_sync.py`: identity verified against the mounted filesystem before
+  the pending-up marker is written under `keydisk.lock`; the marker is
+  kept when submission fails; `--config`/`--profile` are mutually
+  exclusive, so the right daemon is addressed.
+- `rclone_credentials.py` itself: the external file is only read
+  (`O_NOFOLLOW`, size cap, regular-file check); the private copy is written
+  atomically with private modes, and symlinks are refused.
+- Daemon activation controls: `enable` requires installed units;
+  `disable`/`uninstall` stop triggers before the daemon and verify a clean
+  shutdown; `uninstall` removes only unmodified generated files after a
+  preflight and rechecks each file before unlinking it.
