@@ -14,6 +14,28 @@ installed or contacted during the review.
 **Plausible** means traced in code but needing a timing window or an
 uncommon configuration.
 
+## Agreed order of work
+
+Round 1 (F1–F3) shipped as `v0.2.1`. Remaining rounds, each on its own
+branch with tests, committed locally and pushed only when work moves to
+`alpha`:
+
+1. **F9, then F8** (owner agreed to proceed). Record F9's best-effort
+   pendrive publication in `design/history-and-sync.md` before coding.
+   Acceptance beyond unit tests needs the `kp-test` profile; installing
+   kp-sync or units on `beta` needs owner approval, otherwise use
+   `--no-daemon` runs from the checkout.
+2. **F4**, after an owner decision. Recommended: upload missing bases from
+   the fresh listing; when a base exists nowhere, keep refusing to
+   publish, name the version, and add an explicit repair command rather
+   than dropping versions automatically (they may be merge ancestors).
+3. **F7 and F5**, after owner decisions. Recommended: move both laptops to
+   Black 26 and reformat in a separate commit (`alpha` has Black 25.12,
+   which is clean today); widen the Sphinx pin only if the strict build
+   passes under 9.2. For F5, take the probe shortcut only when the token
+   includes a content hash; `command` endpoints always download.
+4. **F6**: leave open until a Flatpak or custom-config KeePassXC is used.
+
 ## Scope
 
 Read closely (at `db06c97`, re-checked at `v0.2.0`): file and drive
