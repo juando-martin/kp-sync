@@ -37,9 +37,14 @@ from the checkout.
    approval there.
 3. **F6** (owner approved fixing it on 2026-11-03): also read the
    KeePassXC setting under `XDG_CONFIG_HOME` and the Flatpak config path.
-4. **F5**: under discussion with the owner. Recommended so far: take the
-   probe shortcut only when the token includes a content hash; `command`
-   endpoints always download.
+4. **F5** (owner chose option 2 on 2026-11-03; do not implement yet):
+   take the probe shortcut only when the token includes a content hash;
+   other rclone remotes and `command` endpoints download, unless an
+   endpoint opts in (e.g. `probe_is_content_hash = true`) because its
+   probe prints a real content hash. Document that a custom probe must
+   change whenever the content changes.
+5. **F11** (proposal recorded on 2026-11-03; do not implement yet): batch
+   per-run rclone transfers of history bases.
 
 ## Scope
 
@@ -114,6 +119,40 @@ real file and overwrites the edit. This conflicts with the REVIEW lesson
 that timestamps alone do not establish content identity. Fix: take the
 shortcut only when the token includes a content hash, and document that a
 command `probe` must change whenever content changes.
+
+## Efficiency
+
+### F11. One rclone call per file dominates cloud history time (proposal)
+
+Each base upload, download and delete is its own rclone call, and the
+cost is per call, not per byte. Measured on `beta` against
+`GoogleDrive:kp-tests` (rclone 1.60.1, 2026-11-03, read-only downloads
+of 4–6 KB files):
+
+| Operation | Time |
+|---|---|
+| rclone process start without network | 0.03 s |
+| one `copyto` from `kp-test-history/bases/` | 4.0 s |
+| three files, three `copyto` calls | 12.0 s |
+| three files, one `copy --files-from-raw --no-traverse` call | 2.4 s |
+| per-run `lsjson --hash` listing (today) | 1.1 s |
+| persistent `rclone rcd`: listing / one download / three downloads | 0.27 / 0.9 / 2.9 s |
+
+The time is Drive authentication and path lookups per call, not process
+start. A commit currently makes about eight sequential `copyto` calls at
+3–4 s each (daemon logs, F9 live test).
+
+Proposal: batch content-addressed base uploads, downloads and deletes of
+one run into one rclone call each (`copy`/`delete --files-from-raw`).
+Keep `state.json` and the database as separate in-place `copyto` writes:
+their order (bases before state) and the shared-state re-checks between
+them are safety rules. A persistent `rclone rcd` is faster per operation
+but adds a long-lived local server with full Drive access (auth,
+lifecycle, interaction with the F8 credentials lock); evaluate it
+separately if batching is not enough. Not considered further: the Drive
+batch API directly (drops rclone), `librclone` (not packaged by Debian),
+`rclone mount` (cache consistency) and archiving the bases (changes the
+history layout).
 
 ## Minor
 
