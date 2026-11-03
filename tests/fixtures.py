@@ -1,5 +1,7 @@
 import hashlib
+import os
 import struct
+import tempfile
 from pathlib import Path
 
 
@@ -21,3 +23,15 @@ def write_kdbx4(path: str | Path, payload: bytes) -> Path:
     target = Path(path)
     target.write_bytes(kdbx4_bytes(payload))
     return target
+
+
+def private_tempdir() -> tempfile.TemporaryDirectory:
+    """Create a 0700 temporary directory on runtime storage.
+
+    Installation safety checks reject group- or world-writable
+    ancestors, so neither ``/tmp`` nor an arbitrary checkout location
+    is reliable. ``XDG_RUNTIME_DIR`` is private to the user; without it,
+    fall back to the configured temporary directory.
+    """
+    base = os.environ.get("XDG_RUNTIME_DIR") or None
+    return tempfile.TemporaryDirectory(dir=base, prefix="kp-sync-test-")

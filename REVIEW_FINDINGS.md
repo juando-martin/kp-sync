@@ -32,58 +32,9 @@ Not yet reviewed in detail: the unchanged parts of `daemon/server.py`,
 `merge.py`, `sessions/session.py`, `config.py` and `integration.py`, and
 the UI modules.
 
-Test run on `beta` at `v0.2.0`: 443 tests, 3 failures and 9 errors, all
-from F1–F3 (environmental, not product defects).
-
-## Test isolation
-
-### F1. Status tests can activate the production daemon (confirmed)
-
-`Client.__init__` calls `ensure_run_dir(config.profile)`
-(`src/kp_sync/daemon/client.py:56`), which reads the process
-`XDG_RUNTIME_DIR` even when the test's `Config` was loaded with a temporary
-environment. `tests/test_status.py` patches `kp_sync.cli.ensure_run_dir`
-but not the client:
-
-- `test_live_status_includes_leases_and_uses_daemon_exit_status` creates the
-  real `$XDG_RUNTIME_DIR/kp-sync/` (observed on `beta` at both revisions).
-- `test_stale_socket_uses_cached_status_without_starting_daemon` also leaves
-  `Client.request` unpatched, so it connects to the real
-  `$XDG_RUNTIME_DIR/kp-sync/control.sock`. On `alpha` that is the production
-  socket unit; connecting starts the daemon by socket activation, whatever
-  `activate=False` says.
-
-Fix: pass the runtime directory into `Client` (or derive it from the
-config's environment), patch `XDG_RUNTIME_DIR` in these tests as
-`tests/test_access_ops.py` does, and assert the client directory is the
-isolated one.
-
-### F2. Tests depend on the checkout location and umask (confirmed)
-
-- `tests/test_integration.py:30` and `tests/test_desktop.py:74` use
-  `tempfile.TemporaryDirectory(dir=Path.cwd())`. That writes test data into
-  the repository (permanent storage) and makes results depend on the
-  checkout's ancestors. On `beta`, `~/workspace` is mode 775, so the
-  install-safety check rejects the path and seven integration tests fail
-  ("installation path is group- or world-writable").
-- Four uninstall tests in `tests/test_services.py` create fixture unit and
-  desktop files with `write_text`, so their mode follows the umask. On
-  `beta` the umask is `0002`, the files come out 0664, and uninstall
-  rightly refuses them ("unsafe file permissions or owner"). Product code
-  is unaffected: `paths.atomic_write` sets 0600 explicitly.
-
-Fix: create fixtures under runtime storage (`TMPDIR`) with a private 0700
-root, and give fixture files explicit modes (or set a known umask in
-`setUp`).
-
-### F3. Compatibility test assumes KeePassXC 2.6 `import` (confirmed)
-
-`tests/test_compatibility.py:53` runs `keepassxc-cli import` without
-`-p`. KeePassXC 2.7.10 then fails with "No key is set. Aborting database
-creation." With `-p` the round trip and merge test passes. Product code is
-unaffected: `verify.py` uses `db-info --quiet` with the password on stdin,
-which works on 2.7.10 and rejects a wrong password. Fix: pass `-p`, which
-2.6.6 should also accept; confirm on `alpha`.
+F1–F3 (test isolation: real daemon socket, checkout-location and umask
+dependence, KeePassXC 2.7 `import`) were fixed on `fix-test-isolation`;
+the full suite (443 tests) then passed on `beta`.
 
 ## History publication
 

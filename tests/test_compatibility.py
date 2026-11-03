@@ -26,6 +26,19 @@ class CompatibilityTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
+    @staticmethod
+    def _import_password_options():
+        # KeePassXC 2.7+ sets an import password only with -p
+        # (--set-password); 2.6 prompts for one unconditionally.
+        result = subprocess.run(
+            ["keepassxc-cli", "import", "--help"],
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        help_text = result.stdout + result.stderr
+        return ["-p"] if "--set-password" in help_text else []
+
     def _canonical(self, xml):
         root = etree.fromstring(
             xml.encode(), etree.XMLParser(remove_blank_text=True)
@@ -51,6 +64,7 @@ class CompatibilityTest(unittest.TestCase):
             fixture = Path(__file__).parent / "data" / "keepassxc.xml"
             self._run(
                 "import",
+                *self._import_password_options(),
                 fixture,
                 original,
                 password="fixture-password\nfixture-password\n",

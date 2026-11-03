@@ -604,9 +604,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from kp_sync.daemon.client import Client, DaemonUnavailable
 
                 try:
-                    result_dict = Client(config).request(
-                        "status", activate=False
-                    )
+                    # Query the socket checked above, not a new path.
+                    result_dict = Client(
+                        config, directory=run_directory
+                    ).request("status", activate=False)
                 except DaemonUnavailable:
                     from kp_sync.log import info
 

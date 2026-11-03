@@ -22,12 +22,16 @@ from kp_sync.integration import (
     render_units,
     _diagnostic_keyring_probe,
 )
+from tests.fixtures import private_tempdir
 from tests.test_credentials import FakeKeyring
 
 
 class IntegrationTest(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=Path.cwd())
+        # Installation checks reject group-writable fixture dirs;
+        # do not inherit a permissive user umask.
+        self.addCleanup(os.umask, os.umask(0o022))
+        self.temp = private_tempdir()
         self.root = Path(self.temp.name)
         self.home = self.root / "home"
         self.home.mkdir()
