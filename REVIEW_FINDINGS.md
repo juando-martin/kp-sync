@@ -30,11 +30,10 @@ from the checkout.
    exists nowhere, keep refusing to publish, name the version, and add an
    explicit repair command rather than dropping versions automatically
    (they may be merge ancestors).
-2. **F7** (owner chose option a on 2026-11-03): move both laptops to
-   Black 26 and reformat in a separate formatting-only commit; widen the
-   Sphinx pin only if the strict build passes under 9.2. Upgrading Black
-   in `alpha`'s tools environment is a package install and needs its own
-   approval there.
+2. **F7** is fixed on `main` (pins `black>=26,<27`, `sphinx>=8,<10`;
+   strict docs build clean under Sphinx 9.2; separate formatting-only
+   commit). Upgrading Black in `alpha`'s tools environment
+   is a package install and needs its own approval there.
 3. **F6** (owner approved fixing it on 2026-11-03): also read the
    KeePassXC setting under `XDG_CONFIG_HOME` and the Flatpak config path.
 4. **F5** (owner chose option 2 on 2026-11-03; do not implement yet):
@@ -188,15 +187,6 @@ read only `~/.config/keepassxc/keepassxc.ini`. A non-default
 `XDG_CONFIG_HOME` or a Flatpak KeePassXC
 (`~/.var/app/org.keepassxc.KeePassXC/config/keepassxc/`) is reported as a
 missing or unverified setting.
-
-### F7. Development tool versions exceed project pins (confirmed)
-
-`~/.venvs/tools` on `beta` has Black 26.10.1 and Sphinx 9.2.0, while
-`pyproject.toml` pins `black>=25,<26` and `sphinx>=8,<9`. Black 26 would
-reformat 19 files at `db06c97`, so `black --check` fails on unchanged
-sources; the documentation tests pass under Sphinx 9.2. Decide whether to
-raise the pins (and reformat in a separate commit) or install pinned
-versions in an isolated environment.
 
 ## Reviewed without findings
 

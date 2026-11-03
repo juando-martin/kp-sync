@@ -16,8 +16,8 @@ dependencies = [
 
 [project.optional-dependencies]
 keepassxc = ["keepassxc-proxy-client==0.1.7"]
-docs = ["sphinx>=8,<9"]
-dev = ["black>=25,<26", "pycodestyle>=2.14,<3"]
+docs = ["sphinx>=8,<10"]
+dev = ["black>=26,<27", "pycodestyle>=2.14,<3"]
 
 [tool.black]
 line-length = 79
