@@ -462,9 +462,17 @@ def doctor(
     swap_probe: Callable[[], tuple[bool, str]] | None = None,
     encrypted_hub_probe: Callable[[Config], tuple[bool, str]] | None = None,
     self_test: bool = False,
+    environ: dict | None = None,
 ) -> list[Check]:
-    """Run diagnostics; session round trips may edit authorized_keys."""
+    """Run diagnostics; session round trips may edit authorized_keys.
+
+    ``environ`` supplies ``XDG_CONFIG_HOME``; it defaults to the process
+    environment only when ``home`` is not given, so an explicit home
+    never mixes with the real user's configuration.
+    """
     root = Path.home() if home is None else Path(home).expanduser()
+    if environ is None:
+        environ = dict(os.environ) if home is None else {}
     install_paths = paths or default_install_paths(root)
     checks: list[Check] = []
     checks.extend(
@@ -702,7 +710,9 @@ def doctor(
             )
         )
 
-    ini_path = root / ".config/keepassxc/keepassxc.ini"
+    from kp_sync.paths import keepassxc_settings_path
+
+    ini_path = keepassxc_settings_path(root, environ)
     try:
         ini = configparser.ConfigParser(interpolation=None)
         with ini_path.open(encoding="utf-8") as source:

@@ -52,8 +52,11 @@
   save through the path unit).
 - **Updates of the hub while an application has it open**:
   - KeePassXC with "automatically reload the database when modified
-    externally" on (`reloads = true`; the daemon checks
-    `~/.config/keepassxc/keepassxc.ini` and warns if the option is off)
+    externally" on (`reloads = true`; the daemon and `doctor` check
+    `keepassxc/keepassxc.ini` under `$XDG_CONFIG_HOME` (default
+    `~/.config`), else the Flatpak copy under
+    `~/.var/app/org.keepassxc.KeePassXC/config/`, and warn if the option
+    is off)
     reloads by itself; with unsaved edits pending, KeePassXC offers to
     merge them. No notice is needed. In a readable settings file an absent
     reload key means enabled, matching KeePassXC's default (verified in

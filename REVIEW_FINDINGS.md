@@ -34,8 +34,7 @@ from the checkout.
    strict docs build clean under Sphinx 9.2; separate formatting-only
    commit). Upgrading Black in `alpha`'s tools environment
    is a package install and needs its own approval there.
-3. **F6** (owner approved fixing it on 2026-11-03): also read the
-   KeePassXC setting under `XDG_CONFIG_HOME` and the Flatpak config path.
+3. **F6** is fixed on `main`.
 4. **F5** (owner chose option 2 on 2026-11-03; do not implement yet):
    take the probe shortcut only when the token includes a content hash;
    other rclone remotes and `command` endpoints download, unless an
@@ -177,16 +176,6 @@ plain rclone calls otherwise.
 batch API directly (drops rclone), `librclone` (not packaged by Debian),
 `rclone mount` (cache consistency) and archiving the bases (changes the
 history layout).
-
-## Minor
-
-### F6. KeePassXC reload setting read from one fixed path (confirmed)
-
-`src/kp_sync/daemon/apps.py:261` and `src/kp_sync/integration.py:704`
-read only `~/.config/keepassxc/keepassxc.ini`. A non-default
-`XDG_CONFIG_HOME` or a Flatpak KeePassXC
-(`~/.var/app/org.keepassxc.KeePassXC/config/keepassxc/`) is reported as a
-missing or unverified setting.
 
 ## Reviewed without findings
 

@@ -438,6 +438,24 @@ class DesktopTest(unittest.TestCase):
                             "older database", notify.call_args.args[0]
                         )
 
+    def test_flatpak_keepassxc_reload_setting_is_read(self):
+        ini = self.root / (
+            ".var/app/org.keepassxc.KeePassXC/config/keepassxc/keepassxc.ini"
+        )
+        ini.parent.mkdir(parents=True)
+        ini.write_text("[General]\nAutoReloadOnChange=false\n")
+        unit = app_unit_name(None, "keepassxc")
+        with patch("kp_sync.daemon.apps.notify_user", return_value=True):
+            manager = AppManager(
+                self.config,
+                FakeSystemd({unit}),
+                FakeDBus(),
+                proc_root=self.root,
+                environment={"HOME": str(self.root), "DISPLAY": ":test"},
+            )
+            self.addCleanup(manager.close)
+            self.assertFalse(manager.specs["keepassxc"].reloads)
+
     def test_app_refresh_throttles_fallback_discovery_to_poll_interval(self):
         unit = app_unit_name(None, "legacy")
         systemd = FakeSystemd({unit})

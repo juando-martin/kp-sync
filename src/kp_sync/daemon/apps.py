@@ -257,8 +257,10 @@ class AppManager:
             error(f"desktop notification failed: {exc}")
 
     def _keepassxc_reload_enabled(self) -> bool:
+        from kp_sync.paths import keepassxc_settings_path
+
         home = Path(self.environment.get("HOME", str(Path.home())))
-        settings = home / ".config/keepassxc/keepassxc.ini"
+        settings = keepassxc_settings_path(home, self.environment)
         parser = configparser.ConfigParser(interpolation=None)
         try:
             with settings.open(encoding="utf-8") as source:

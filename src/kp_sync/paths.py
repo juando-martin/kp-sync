@@ -109,3 +109,43 @@ def atomic_write(path: str | os.PathLike[str], data: str | bytes) -> None:
         except FileNotFoundError:
             pass
         raise
+
+
+KEEPASSXC_FLATPAK_ID = "org.keepassxc.KeePassXC"
+
+
+def keepassxc_settings_path(
+    home: str | os.PathLike[str], environ: dict | None = None
+) -> Path:
+    """Return the KeePassXC settings file to read.
+
+    Checks the native location (``$XDG_CONFIG_HOME``, else
+    ``~/.config``) and then the Flatpak one; the first that exists
+    wins. Without either, returns the native path.
+
+    Args:
+        home: Home directory.
+        environ: Environment providing ``XDG_CONFIG_HOME``; a relative
+            value is ignored, as the XDG specification requires.
+    """
+    home = Path(home)
+    config_home = (environ or {}).get("XDG_CONFIG_HOME", "")
+    base = (
+        Path(config_home)
+        if config_home and os.path.isabs(config_home)
+        else home / ".config"
+    )
+    native = base / "keepassxc" / "keepassxc.ini"
+    flatpak = (
+        home
+        / ".var"
+        / "app"
+        / KEEPASSXC_FLATPAK_ID
+        / "config"
+        / "keepassxc"
+        / "keepassxc.ini"
+    )
+    for candidate in (native, flatpak):
+        if os.path.lexists(candidate):
+            return candidate
+    return native

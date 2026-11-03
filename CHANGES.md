@@ -30,6 +30,10 @@ hold the details; design decisions live in the `design/` chapters.
 - After a failed sync the daemon no longer starts a new visible sync,
   with its progress dialog, every few seconds. It retries on the next
   save, hub change or background poll.
+- The KeePassXC "reload when modified externally" check (daemon and
+  `kp-sync doctor`) also finds KeePassXC's settings under a custom
+  `XDG_CONFIG_HOME` and in a Flatpak installation, instead of reporting
+  the setting as missing.
 
 ## 0.2.1 (2026-11-03)
 

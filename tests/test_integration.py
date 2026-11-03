@@ -447,6 +447,38 @@ class IntegrationTest(unittest.TestCase):
         self.assertFalse(by_name["keyring-possession"].ok)
         self.assertFalse(by_name["socket-protocol"].ok)
 
+    def test_doctor_reads_keepassxc_setting_under_xdg_config_home(self):
+        paths = InstallPaths(
+            self.home / ".config/systemd/user",
+            self.home / ".local/share/applications",
+            self.home / ".config/autostart",
+        )
+        install_units(self.config, home=self.home, paths=paths, enable=False)
+        config_home = self.home / "custom-config"
+        ini = config_home / "keepassxc/keepassxc.ini"
+        ini.parent.mkdir(parents=True)
+        ini.write_text("[General]\nAutoReloadOnChange=true\n")
+
+        def run(environ):
+            checks = doctor(
+                self.config,
+                home=self.home,
+                paths=paths,
+                runtime_dir=self.runtime,
+                runner=lambda argv, **kwargs: subprocess.CompletedProcess(
+                    argv, 0, "enabled\n", ""
+                ),
+                socket_probe=lambda path: (True, "protocol version 1"),
+                keyring_probe=lambda: (True, "ok"),
+                swap_probe=lambda: (True, "none"),
+                environ=environ,
+            )
+            return {item.name: item for item in checks}["keepassxc-reload"]
+
+        self.assertTrue(run({"XDG_CONFIG_HOME": str(config_home)}).ok)
+        # Without it the native file is missing, so nothing is verified.
+        self.assertFalse(run({}).ok)
+
     def test_doctor_checks_rclone_remote_and_its_database_probe(self):
         config = replace(
             self.config,
