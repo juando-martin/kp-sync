@@ -10,6 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
+from kp_sync.lock import LockTimeout, file_lock
 from kp_sync.config import EndpointConfig, load_config
 from kp_sync.paths import run_dir
 from kp_sync.integration import (
@@ -466,11 +467,23 @@ class IntegrationTest(unittest.TestCase):
         )
 
         calls = []
+        locked = []
 
         def runner(argv, **kwargs):
             calls.append(argv)
             if argv[0] == "systemctl":
                 return subprocess.CompletedProcess(argv, 0, "enabled\n", "")
+            if argv[0] == "rclone":
+                # An import or drain must not get in while rclone runs.
+                try:
+                    with file_lock(
+                        run_dir(None, xdg_runtime_dir=self.runtime)
+                        / "rclone-credentials.lock",
+                        0,
+                    ):
+                        locked.append(False)
+                except LockTimeout:
+                    locked.append(True)
             if argv[1:2] == ["listremotes"]:
                 return subprocess.CompletedProcess(argv, 0, "Drive:\n", "")
             if "lsjson" in argv:
@@ -529,6 +542,8 @@ class IntegrationTest(unittest.TestCase):
                     calls,
                 )
         self.assertEqual(external.read_text(encoding="utf-8"), "[Drive]\n")
+        self.assertTrue(locked)
+        self.assertTrue(all(locked))
 
     def test_doctor_reports_unpublished_rclone_credentials(self):
         configured = replace(

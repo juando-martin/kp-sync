@@ -169,12 +169,17 @@ class RcloneEndpoint(Endpoint):
         return f"{self.root}{separator}{path}"
 
     def _execute(self, command: Sequence[str]) -> subprocess.CompletedProcess:
+        if self.credentials is None:
+            return self._execute_with(command, self.rclone_config)
+        # The shared lock keeps imports and drains out while rclone,
+        # which may write refreshed tokens back, uses the copy.
+        with self.credentials.in_use() as config:
+            return self._execute_with(command, config)
+
+    def _execute_with(
+        self, command: Sequence[str], config: str | None
+    ) -> subprocess.CompletedProcess:
         argv = list(command)
-        config = (
-            self.credentials.require()
-            if self.credentials is not None
-            else self.rclone_config
-        )
         if config is not None:
             argv.extend(("--config", config))
         started = time.monotonic()

@@ -15,6 +15,11 @@ hold the details; design decisions live in the `design/` chapters.
   next updated; declining, or a background sync without a dialog, leaves
   a pending decision (`kp-sync resolve` asks again). Launching, kp-access
   and ejecting the drive are not blocked.
+- `kp-sync history` and `kp-sync doctor` no longer race the daemon over
+  the private rclone credentials copy. Importing a new provider config or
+  removing the copy after the key drive leaves now waits for any rclone
+  run of the profile, in any process, so a running rclone can no longer
+  overwrite a newly imported login or recreate a removed copy.
 
 ## 0.2.1 (2026-11-03)
 

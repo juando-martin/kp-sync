@@ -1629,6 +1629,7 @@ class DaemonTest(unittest.TestCase):
         self.assertEqual(external.read_text(), "synthetic config only")
 
     def test_credentials_watch_drains_or_drops_copy(self):
+        from kp_sync.lock import file_lock
         from kp_sync.rclone_credentials import RcloneCredentials
 
         controller = self.controller()
@@ -1654,6 +1655,12 @@ class DaemonTest(unittest.TestCase):
         controller._watch_credentials()
         self.assertTrue(handle.copy_exists())
         controller.leases.release("drive:x:y")
+        # Another process still runs rclone: the tick does not wait.
+        with file_lock(handle.lock_path, 0, shared=True):
+            with patch("kp_sync.lock.time.sleep") as slept:
+                controller._watch_credentials()
+            slept.assert_not_called()
+            self.assertTrue(handle.copy_exists())
         controller._watch_credentials()
         self.assertFalse(handle.copy_exists())
 

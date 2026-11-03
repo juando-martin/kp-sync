@@ -20,10 +20,11 @@ Round 1 (F1–F3) shipped as `v0.2.1`. Remaining rounds, each on its own
 branch with tests, committed locally and pushed only when work moves to
 `alpha`:
 
-1. **F8** (owner agreed to proceed; F9 is fixed on `main`). Acceptance
-   beyond unit tests needs the `kp-test` profile; installing kp-sync or
-   units on `beta` needs owner approval, otherwise use `--no-daemon`
-   runs from the checkout.
+1. **F10** (owner agreed: treat an unwritable drive copy like F9 and back
+   off failing runs). F9 and F8 are fixed on `main`. Acceptance beyond
+   unit tests needs the `kp-test` profile; installing kp-sync or units on
+   `beta` needs owner approval, otherwise use `--no-daemon` runs from
+   the checkout.
 2. **F4**, after an owner decision. Recommended: upload missing bases from
    the fresh listing; when a base exists nowhere, keep refusing to
    publish, name the version, and add an explicit repair command rather
@@ -34,9 +35,6 @@ branch with tests, committed locally and pushed only when work moves to
    passes under 9.2. For F5, take the probe shortcut only when the token
    includes a content hash; `command` endpoints always download.
 4. **F6**: leave open until a Flatpak or custom-config KeePassXC is used.
-5. **F10**, found in the F9 live test; needs an owner decision on
-   whether an unwritable drive copy is skipped like an unreachable
-   endpoint or confirmed through the UI like F9, and on the retry loop.
 
 ## Scope
 
@@ -137,42 +135,6 @@ real file and overwrites the edit. This conflicts with the REVIEW lesson
 that timestamps alone do not establish content identity. Fix: take the
 shortcut only when the token includes a content hash, and document that a
 command `probe` must change whenever content changes.
-
-## Code new in v0.2.0
-
-### F8. Private rclone copy is not protected across processes (plausible)
-
-`RcloneCredentials.refresh()` and `finish()`
-(`src/kp_sync/rclone_credentials.py:81-141`) require that no rclone process
-of the profile is running, because rclone writes refreshed tokens back to
-the file named by `--config`. That holds only inside one process: the
-engine calls them under its sync lock (`engine.py`, `begin_run`/`end_run`),
-and the daemon's `_watch_credentials` (`daemon/server.py:347-367`) drains
-only when its own sync gate is idle. Other processes use the same private
-copy without that lock:
-
-- `kp-sync history` loads cloud history through it with no lock
-  (`history_command.py:38-48`);
-- `doctor` calls `refresh()` directly with no lock
-  (`integration.py:1133`).
-
-Failure scenarios:
-
-- **Refresh during another process's run:** a refresh imports a new
-  provider file while a parallel rclone still holds the old one. That
-  rclone then writes its refreshed token from the old config over the
-  import. `.source` already records the new digest, so the newer config is
-  never imported again until the provider changes it once more. This
-  matters when the update was a re-authorization; Google Drive refresh
-  tokens don't rotate, so an old copy usually keeps working.
-- **Drain during another process's run:** a drain deletes the copy while a
-  parallel rclone is running. If that rclone later saves a token, it
-  recreates the copy (udevmon proposal R3), so credentials survive after
-  the drive is removed until the next drain.
-
-Fix: serialize every rclone invocation and every refresh/finish/discard of
-a profile's copy under one lock: a dedicated `rclone-credentials.lock`,
-shared for rclone runs and exclusive for refresh and drain.
 
 ## Minor
 

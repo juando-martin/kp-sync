@@ -349,8 +349,9 @@ class Controller:
 
         A changed file triggers a sync while leases are held; the
         run imports it. A vanished file triggers one draining sync or
-        drops the private copy at once when nothing needs it. Without a
-        running sync the copy never has an rclone process using it.
+        drops the private copy at once when nothing needs it. Another
+        process may still run rclone with the copy, so the drain only
+        tries the credentials lock and retries on a later tick.
         """
         for handle in self.credentials:
             digest = handle._external_digest()
@@ -364,7 +365,7 @@ class Controller:
                 if previous is not None and self.leases.leases:
                     self.triggers.trigger(immediate=True)
                 elif not self.leases.leases and not busy:
-                    handle.finish()
+                    handle.finish(wait=False)
 
     def _tick_step(self, name, operation, *, circuit_breaker=True):
         now = self.clock()

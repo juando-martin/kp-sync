@@ -10,17 +10,22 @@ from typing import Iterator
 
 
 class LockTimeout(TimeoutError):
-    """Raised when an exclusive lock cannot be acquired in time."""
+    """Raised when a lock cannot be acquired in time."""
 
     pass
 
 
-def acquire_lock(fd: int, timeout: float) -> None:
-    """Acquire an exclusive nonblocking flock on an open descriptor."""
+def acquire_lock(fd: int, timeout: float, *, shared: bool = False) -> None:
+    """Acquire a nonblocking flock on an open descriptor.
+
+    ``shared`` takes a shared lock instead of an exclusive one. A zero
+    ``timeout`` tries once.
+    """
+    mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
     deadline = time.monotonic() + timeout
     while True:
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, mode | fcntl.LOCK_NB)
             return
         except BlockingIOError:
             if time.monotonic() >= deadline:
@@ -30,12 +35,16 @@ def acquire_lock(fd: int, timeout: float) -> None:
 
 @contextmanager
 def file_lock(
-    path: str | os.PathLike[str], timeout: float = 60
+    path: str | os.PathLike[str],
+    timeout: float = 60,
+    *,
+    shared: bool = False,
 ) -> Iterator[int]:
-    """Hold an exclusive private file lock for the context's duration.
+    """Hold a private file lock for the context's duration.
 
-    Yields the open descriptor. The lock is released on context exit,
-    including when the body raises.
+    The lock is exclusive unless ``shared`` is set. Yields the open
+    descriptor. The lock is released on context exit, including when
+    the body raises.
     """
     if timeout < 0:
         raise ValueError("lock timeout must not be negative")
@@ -56,7 +65,7 @@ def file_lock(
                 f"lock path is not a regular user-owned file: {lock_path}"
             )
         os.fchmod(fd, 0o600)
-        acquire_lock(fd, timeout)
+        acquire_lock(fd, timeout, shared=shared)
         yield fd
     finally:
         try:

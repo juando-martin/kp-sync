@@ -11,6 +11,7 @@ import socket
 import stat
 import subprocess
 import uuid
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping
@@ -1114,84 +1115,92 @@ def _rclone_checks(
 ) -> list[Check]:
     checks: list[Check] = []
     for endpoint in config.endpoints:
-        if endpoint.type != "rclone" or not endpoint.enabled:
-            continue
-        remote = endpoint.remote or ""
-        configured = f"{remote.split(':', 1)[0]}:"
-        argv = ["rclone", "listremotes"]
-        config_path = None
-        if endpoint.rclone_config is not None:
-            from kp_sync.paths import run_dir
-            from kp_sync.rclone_credentials import RcloneCredentials
+        # Hold the credentials lock shared while rclone uses the copy.
+        with ExitStack() as stack:
+            if endpoint.type != "rclone" or not endpoint.enabled:
+                continue
+            remote = endpoint.remote or ""
+            configured = f"{remote.split(':', 1)[0]}:"
+            argv = ["rclone", "listremotes"]
+            config_path = None
+            if endpoint.rclone_config is not None:
+                from kp_sync.paths import run_dir
+                from kp_sync.rclone_credentials import RcloneCredentials
 
-            credentials = RcloneCredentials(
-                endpoint.name,
-                endpoint.rclone_config,
-                run_dir(config.profile, xdg_runtime_dir=runtime_dir),
-            )
+                credentials = RcloneCredentials(
+                    endpoint.name,
+                    endpoint.rclone_config,
+                    run_dir(config.profile, xdg_runtime_dir=runtime_dir),
+                )
+                try:
+                    credentials.refresh()
+                    if not credentials.external_present():
+                        raise OSError("external config not published")
+                    config_path = stack.enter_context(credentials.in_use())
+                except (OSError, RuntimeError, ValueError):
+                    checks.append(
+                        Check(
+                            f"rclone:{endpoint.name}",
+                            True,
+                            "WARNING: rclone credentials unavailable "
+                            f"({endpoint.rclone_config} is not published)",
+                        )
+                    )
+                    continue
+                argv.extend(("--config", config_path))
             try:
-                credentials.refresh()
-                if not credentials.external_present():
-                    raise OSError("external config not published")
-                config_path = credentials.require()
-            except (OSError, RuntimeError, ValueError):
+                listing = _run(runner, argv, timeout=endpoint.timeout)
+                remotes = {
+                    line.strip()
+                    for line in listing.stdout.splitlines()
+                    if line.strip()
+                }
+                if listing.returncode or configured not in remotes:
+                    raise RuntimeError(
+                        f"configured remote {configured} is unavailable"
+                    )
+                database_remote = RcloneEndpoint(
+                    endpoint.name,
+                    remote,
+                    database_name=config.db_name,
+                ).database_remote
+                probe = list(
+                    endpoint.probe
+                    or ("rclone", "lsjson", "--hash", "{remote}")
+                )
+                probe = [
+                    arg.replace("{remote}", database_remote) for arg in probe
+                ]
+                if config_path is not None:
+                    probe.extend(("--config", config_path))
+                probed = _run(runner, probe, timeout=endpoint.timeout)
+                if probed.returncode:
+                    raise RuntimeError(
+                        "remote probe failed "
+                        f"(exit status {probed.returncode})"
+                    )
                 checks.append(
                     Check(
                         f"rclone:{endpoint.name}",
                         True,
-                        "WARNING: rclone credentials unavailable "
-                        f"({endpoint.rclone_config} is not published)",
+                        f"rclone remote {configured} and its database "
+                        "probe work",
                     )
                 )
-                continue
-            argv.extend(("--config", config_path))
-        try:
-            listing = _run(runner, argv, timeout=endpoint.timeout)
-            remotes = {
-                line.strip()
-                for line in listing.stdout.splitlines()
-                if line.strip()
-            }
-            if listing.returncode or configured not in remotes:
-                raise RuntimeError(
-                    f"configured remote {configured} is unavailable"
+            except (
+                OSError,
+                subprocess.SubprocessError,
+                RuntimeError,
+                ValueError,
+            ) as exc:
+                checks.append(
+                    Check(
+                        f"rclone:{endpoint.name}",
+                        False,
+                        "rclone remote/probe check failed for "
+                        f"{remote}: {exc}",
+                    )
                 )
-            database_remote = RcloneEndpoint(
-                endpoint.name,
-                remote,
-                database_name=config.db_name,
-            ).database_remote
-            probe = list(
-                endpoint.probe or ("rclone", "lsjson", "--hash", "{remote}")
-            )
-            probe = [arg.replace("{remote}", database_remote) for arg in probe]
-            if config_path is not None:
-                probe.extend(("--config", config_path))
-            probed = _run(runner, probe, timeout=endpoint.timeout)
-            if probed.returncode:
-                raise RuntimeError(
-                    f"remote probe failed (exit status {probed.returncode})"
-                )
-            checks.append(
-                Check(
-                    f"rclone:{endpoint.name}",
-                    True,
-                    f"rclone remote {configured} and its database probe work",
-                )
-            )
-        except (
-            OSError,
-            subprocess.SubprocessError,
-            RuntimeError,
-            ValueError,
-        ) as exc:
-            checks.append(
-                Check(
-                    f"rclone:{endpoint.name}",
-                    False,
-                    f"rclone remote/probe check failed for {remote}: {exc}",
-                )
-            )
     if not any(
         item.type == "rclone" and item.enabled for item in config.endpoints
     ):

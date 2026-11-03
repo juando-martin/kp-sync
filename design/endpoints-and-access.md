@@ -124,6 +124,19 @@
     draining. A leftover copy found at daemon start with no external file,
     and every copy at runtime cleanup or idle exit, is deleted. kp-sync
     never writes refreshed tokens back to the source drive.
+  - *Cross-process lock.* "No rclone child runs" must hold across all
+    processes of the profile, not only inside one sync: `history`,
+    `doctor` and a daemon can use the same copy at once. Every rclone
+    invocation with the private copy holds
+    `<profile run dir>/rclone-credentials.lock` shared (concurrent rclone
+    runs stay parallel); import, drain and discard hold it exclusive, so
+    they wait for running rclone children and none starts meanwhile. A
+    missing copy is imported first, then the shared lock is taken and
+    the copy re-checked: if a drain removed it in between, the endpoint
+    is "credentials unavailable". Waits are bounded: a busy import keeps
+    the current copy (the next run imports), a busy drain is retried
+    later (the daemon watch only tries without waiting), and a copy left
+    at cleanup is removed by the next daemon start or by logout.
   - *Watch.* While running, the daemon watches the external file's
     directory (or its parent while absent, or polls): appearance or change
     imports and, while leases are held, starts a sync; disappearance
