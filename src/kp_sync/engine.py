@@ -18,6 +18,7 @@ from typing import Iterable
 from kp_sync.backups import backup_file
 from kp_sync.baseline import (
     BaselineChanged,
+    MissingBases,
     BaselineManager,
     stores_from_endpoints,
 )
@@ -615,6 +616,8 @@ class SyncEngine:
         self._ensure_runtime_dirs()
         # Drive copies this run could not write, by identity.
         self._copy_failures: dict[str, str] = {}
+        # Versions whose lost base stopped this run publishing history.
+        self._unpublished_lost: set[str] = set()
         self._verification_reference_credentials = None
         self._known_credentials = []
         self._credential_probes: tuple[Path, ...] = ()
@@ -1071,7 +1074,7 @@ class SyncEngine:
                                 remote_hashes=previous.remote_hashes,
                             )
                     state.save(state_path)
-                    self._baseline.save(state, temporary)
+                    self._publish(state, temporary, observations)
                     self._finish_inflight_candidates(
                         self._completed_inflight_candidates(
                             candidate_sha,
@@ -1436,7 +1439,7 @@ class SyncEngine:
                         },
                     )
             state.save(state_path)
-            self._baseline.save(state, temporary)
+            self._publish(state, temporary, observations)
             self._finish_inflight_candidates(resolved_inflight)
             self._prune_cached_bases(state)
             self._clear_pending()
@@ -3518,6 +3521,25 @@ class SyncEngine:
             return reason
         return None
 
+    def _publish(self, state, temporary: Path, observations) -> None:
+        """Publish history; a lost base refuses it without failing.
+
+        Runtime history is already committed. A base that exists nowhere
+        keeps the shared history unpublished (retried every run) and is
+        confirmed with the user after the run's local work.
+        """
+        try:
+            self._baseline.save(
+                state,
+                temporary,
+                sources=_observed_sources(observations, state),
+            )
+        except MissingBases as exc:
+            from kp_sync.log import error
+
+            error(str(exc))
+            self._unpublished_lost = set(exc.missing)
+
     def _confirm_replica_failures(self, current_copies=()) -> None:
         """Ask whether to continue without updating some pendrives.
 
@@ -3543,11 +3565,20 @@ class SyncEngine:
             failures[f"drive-history:{name}"] = (name, "history", reason)
         for identity, reason in getattr(self, "_copy_failures", {}).items():
             failures[f"drive-copy:{identity}"] = (identity, "copy", reason)
+        lost = sorted(
+            set(getattr(self._baseline, "lost_bases", ()))
+            | getattr(self, "_unpublished_lost", set())
+        )
+        if lost:
+            names = ", ".join(sha[:12] for sha in lost)
+            failures["history-bases:lost"] = ("", "bases", names)
 
         def still_outdated(key: str) -> bool:
             kind, _, name = key.partition(":")
             if key in failures:
                 return True
+            if kind == "history-bases":
+                return False
             if kind == "drive-copy":
                 return name not in current_copies
             outcome = outcomes.get(name, "")
@@ -3566,8 +3597,18 @@ class SyncEngine:
         for key, (name, kind, reason) in sorted(failures.items()):
             if key in current:
                 continue
-            label = _copy_display(name, self.config, {})[1]
-            if kind == "history":
+            label = _copy_display(name, self.config, {})[1] if name else ""
+            if kind == "bases":
+                question = (
+                    f"The saved copy of history version(s) {reason} is "
+                    "missing from the runtime cache, every history store "
+                    "and every reachable database copy. The database "
+                    "copies are still synchronized, but kp-sync will not "
+                    "publish new history until you run kp-sync "
+                    "repair-history. Continue for now?"
+                )
+                summary = "history version(s) lost their saved copy"
+            elif kind == "history":
                 question = (
                     f"History on pendrive {label} could not be updated "
                     f"({reason}). The database and cloud history are "
@@ -3586,7 +3627,11 @@ class SyncEngine:
                 )
                 summary = f"database on pendrive {label} could not be updated"
             if self.ui.confirm(question, default=False) is True:
-                info(f"continuing without updating {kind} on {label}")
+                info(
+                    f"continuing with lost history bases: {reason}"
+                    if kind == "bases"
+                    else f"continuing without updating {kind} on {label}"
+                )
                 current[key] = reason
                 continue
             pending.save(key, f"{summary}: {reason}", {"store": name})
@@ -4031,6 +4076,19 @@ def _status_details(
     return copies, sessions, summary
 
 
+def _observed_sources(observations, state: HistoryState) -> dict:
+    """Map retained versions to this run's local copies of their bytes.
+
+    The baseline manager verifies each file's hash before using it to
+    restore a missing base.
+    """
+    return {
+        item.sha256: item.local_path
+        for item in observations
+        if item.sha256 in state.versions and item.local_path is not None
+    }
+
+
 def _read_replica_acknowledgements(path: Path) -> dict[str, str]:
     """Load accepted outdated-replica warnings; ignore invalid data."""
     from kp_sync.log import info
@@ -4044,7 +4102,9 @@ def _read_replica_acknowledgements(path: Path) -> dict[str, str]:
         stores = payload["accepted"]
         if payload.get("schema_version") != 1 or not all(
             isinstance(key, str)
-            and key.startswith(("drive-history:", "drive-copy:"))
+            and key.startswith(
+                ("drive-history:", "drive-copy:", "history-bases:")
+            )
             and isinstance(value, str)
             for key, value in stores.items()
         ):

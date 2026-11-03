@@ -57,7 +57,11 @@ Rules:
   publish immediately. An empty or outdated drive store is brought current
   even when cloud history is unchanged; identical stores incur no writes.
   Bases are verified and copied before each target's state is published,
-  with shared-state rechecks preserved. The first store in that order (the
+  with shared-state rechecks preserved. Which bases a store needs is
+  decided from its actual base listing (name and recorded size), not from
+  the versions its `state.json` lists, so a base listed in a store's state
+  but missing as a file is uploaded again, also to a store whose history
+  is otherwise current (see "Missing bases and repair"). The first store in that order (the
   cloud, or the first drive when the cloud is unreachable) is required:
   its failure fails the run. Later drive stores are best-effort replicas
   once the required store holds the published state (published now or
@@ -209,6 +213,52 @@ local operations, and Google Drive does not provide atomic check-and-delete
 against `state.json`. Fresh checks detect changes but cannot guarantee safety
 if that operational precondition is violated. No age heuristic substitutes
 for it. Unavailable history is not treated as an empty graph.
+
+## Missing bases and repair
+
+A retained version's base can disappear from a store: hosts prune bases
+without a cross-host lock (a host deleting stale bases can remove one that
+another host's just-published state references), and files can be deleted
+by hand. Every publication therefore heals stores from their actual
+listings: each missing or wrongly sized retained base is taken from the
+runtime cache, from another available store or from a database copy
+observed in this run whose bytes have that SHA-256 (verified on use, never
+trusted by name), and uploaded before that store's state. Only missing
+bases are fetched, so a fresh runtime does not download every base.
+
+When a retained version's base exists nowhere reachable, publication is
+refused: every retained version is held by a copy or is the merge base of
+two held versions, so silently dropping it could make later merges less
+exact. Shared history is then not written (each run retries), while the
+run finishes its local work (runtime history is already committed). The
+loss is never left to the log: after the run's local work it is a user
+decision like an outdated pendrive history (see "Baseline store"),
+`history-bases:lost`, naming the versions and `kp-sync repair-history`,
+also when nothing needed publishing. Acceptance is kept in the same
+acknowledgement file until no base is lost; a refusal or headless run
+leaves the pending decision.
+
+`repair-history` previews by default and changes nothing. It reports, per
+retained version, which available stores lack its base and whether a
+verified copy exists in the runtime cache, an available store, the hub or
+a local file/pendrive endpoint (read locally; no database is downloaded
+from the cloud, and a normal sync heals from reachable copies anyway). It
+also lists drive identities known to history but not attached, which may
+hold copies. `--apply --confirm-writers-paused` then holds the
+access-operation and engine locks, restores every recoverable base, and
+removes each version whose base exists nowhere by contracting it (its
+parents pass to its children) and removing copy records that point at it;
+those copies are then unknown on their next sync and get the unknown-copy
+safeguards. The result is committed to runtime history and published
+through the normal mechanism. The same blockers as explicit cleanup apply
+(pending decisions, in-flight writes, recovery or retirement progress,
+unavailable configured history), as does the requirement that every other
+writer of this history is paused. A removed version can return from a
+store that still lists it (for example a pendrive attached later); such a
+store normally also holds its base, which then heals the others, and
+otherwise the repair is repeated. Another host's runtime history can bring
+it back the same way; if publication then fails there, run the repair on
+that host too.
 
 ## Sync algorithm (`kp-sync sync`)
 

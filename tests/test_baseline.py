@@ -8,6 +8,7 @@ from kp_sync.baseline import (
     BaselineManager,
     CloudStore,
     DriveStore,
+    MissingBases,
 )
 from kp_sync.drives import DriveEndpoint
 from kp_sync.endpoints.base import EndpointUnavailable
@@ -58,6 +59,16 @@ class FakeStore:
 
     def delete_base(self, name):
         (self.root / "bases" / name).unlink()
+
+    def base_sizes(self):
+        if not self.online:
+            raise EndpointUnavailable("offline")
+        directory = self.root / "bases"
+        return (
+            {path.name: path.stat().st_size for path in directory.iterdir()}
+            if directory.exists()
+            else {}
+        )
 
     def remove(self):
         for name in self.bases():
@@ -489,6 +500,106 @@ class BaselineTest(unittest.TestCase):
         self.assertEqual(
             HistoryState.load(self.drive.root / "state.json").to_dict(),
             merged.to_dict(),
+        )
+
+    def _lose_cloud_base(self):
+        state, sha = self.seed(self.cloud)
+        base = self.cloud.root / "bases" / f"{sha}.kdbx"
+        data = base.read_bytes()
+        base.unlink()
+        return state, sha, data
+
+    def test_base_missing_from_current_cloud_history_is_restored(self):
+        _, sha, data = self._lose_cloud_base()
+        (self.runtime / "bases").mkdir(mode=0o700)
+        (self.runtime / "bases" / f"{sha}.kdbx").write_bytes(data)
+        manager = BaselineManager(self.runtime, (self.cloud,))
+        merged = manager.load(self.work)
+        self.cloud.events.clear()
+        manager.save(merged, self.work)
+        # History was already current: only the base is uploaded.
+        self.assertEqual(self.cloud.events, [f"bases/{sha}.kdbx"])
+        self.assertEqual(
+            (self.cloud.root / "bases" / f"{sha}.kdbx").read_bytes(), data
+        )
+
+    def test_missing_cloud_base_is_restored_from_a_drive_store(self):
+        state, sha, data = self._lose_cloud_base()
+        (self.drive.root / "bases").mkdir()
+        (self.drive.root / "bases" / f"{sha}.kdbx").write_bytes(data)
+        state.save(self.drive.root / "state.json")
+        manager = BaselineManager(self.runtime, (self.cloud, self.drive))
+        manager.save(manager.load(self.work), self.work)
+        self.assertEqual(
+            (self.cloud.root / "bases" / f"{sha}.kdbx").read_bytes(), data
+        )
+
+    def test_missing_base_is_restored_from_a_verified_observed_copy(self):
+        _, sha, data = self._lose_cloud_base()
+        copy = self.work / "observed.kdbx"
+        copy.write_bytes(data)
+        wrong = self.work / "wrong.kdbx"
+        wrong.write_bytes(kdbx4_bytes(b"other bytes" * 20))
+        manager = BaselineManager(self.runtime, (self.cloud,))
+        merged = manager.load(self.work)
+        with patch("kp_sync.baseline.error"):
+            # A source with other bytes is never trusted by name.
+            manager.save(merged, self.work, sources={sha: wrong})
+        self.assertFalse((self.cloud.root / "bases" / f"{sha}.kdbx").exists())
+        manager.save(merged, self.work, sources={sha: copy})
+        self.assertEqual(
+            (self.cloud.root / "bases" / f"{sha}.kdbx").read_bytes(), data
+        )
+
+    def test_base_missing_everywhere_blocks_new_history_by_name(self):
+        state, sha, _ = self._lose_cloud_base()
+        manager = BaselineManager(self.runtime, (self.cloud,))
+        merged = manager.load(self.work)
+        # Current history is only reported, not failed.
+        with patch("kp_sync.baseline.error") as logged:
+            manager.save(merged, self.work)
+        self.assertIn(sha[:12], logged.call_args.args[0])
+        self.assertIn(
+            "missing everywhere", manager.publication_outcomes["cloud"]
+        )
+        merged.record_copies(sha, ["hub:this"], "this")
+        with self.assertRaises(MissingBases) as raised:
+            manager.save(merged, self.work)
+        self.assertEqual(raised.exception.missing, (sha,))
+        self.assertIn("repair-history", str(raised.exception))
+        self.assertNotIn(
+            "hub:this",
+            HistoryState.load(self.cloud.root / "state.json").copies,
+        )
+
+    def test_wrongly_sized_store_base_is_replaced(self):
+        _, sha, data = self._lose_cloud_base()
+        (self.cloud.root / "bases" / f"{sha}.kdbx").write_bytes(b"torn")
+        (self.runtime / "bases").mkdir(mode=0o700)
+        (self.runtime / "bases" / f"{sha}.kdbx").write_bytes(data)
+        manager = BaselineManager(self.runtime, (self.cloud,))
+        manager.save(manager.load(self.work), self.work)
+        self.assertEqual(
+            (self.cloud.root / "bases" / f"{sha}.kdbx").read_bytes(), data
+        )
+
+    def test_fresh_runtime_does_not_download_bases_stores_already_have(self):
+        state, base = self.seed(self.cloud)
+        self.seed(self.cloud, state=state, parent=base, payload=b"newer")
+        fetched = []
+        original = self.cloud.fetch
+
+        def fetch(relative, destination, *, max_age=None):
+            fetched.append(relative)
+            return original(relative, destination, max_age=max_age)
+
+        self.cloud.fetch = fetch
+        manager = BaselineManager(self.runtime, (self.cloud,))
+        merged = manager.load(self.work)
+        merged.record_copies(base, ["hub:this"], "this")
+        manager.save(merged, self.work)
+        self.assertEqual(
+            [name for name in fetched if name.startswith("bases/")], []
         )
 
     def test_prune_removes_only_unretained_hash_named_bases(self):

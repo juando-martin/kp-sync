@@ -38,6 +38,7 @@ COMMANDS = (
     ("history", "List retained database versions"),
     ("retire-session", "Preview or retire exact legacy session records"),
     ("cleanup", "Preview or remove obsolete baseline files"),
+    ("repair-history", "Preview or repair versions with missing bases"),
     ("forget", "Forget the cached passwords"),
     ("keepassxc-disconnect", "Remove local KeePassXC pairing"),
     ("status", "Show synchronization status"),
@@ -137,6 +138,17 @@ def _build_parser() -> argparse.ArgumentParser:
                 "--apply",
                 action="store_true",
                 help="delete previewed obsolete bases in an explicit scope",
+            )
+            command_parser.add_argument(
+                "--confirm-writers-paused",
+                action="store_true",
+                help="confirm other shared-history writers remain paused",
+            )
+        elif name == "repair-history":
+            command_parser.add_argument(
+                "--apply",
+                action="store_true",
+                help="restore bases and remove versions whose base is lost",
             )
             command_parser.add_argument(
                 "--confirm-writers-paused",
@@ -496,6 +508,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(report, sort_keys=True))
             return 1 if report["errors"] else 0
         except (OSError, RuntimeError, ValueError) as exc:
+            error(str(exc))
+            return 1
+    if args.command == "repair-history":
+        if args.apply and not args.confirm_writers_paused:
+            error("repair-history --apply requires --confirm-writers-paused")
+            return 2
+        try:
+            from kp_sync.repair import repair_history
+
+            config = load_config(args.config, profile=args.profile)
+            report = repair_history(
+                config,
+                apply=args.apply,
+                writers_paused=args.confirm_writers_paused,
+            )
+            print(json.dumps(report, sort_keys=True))
+            return 0
+        except (OSError, RuntimeError, ValueError, StateError) as exc:
             error(str(exc))
             return 1
     if args.command == "retire-session":

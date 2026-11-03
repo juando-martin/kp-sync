@@ -292,6 +292,19 @@ def prune_history(
             if base is not None:
                 pinned.add(base)
 
+    contracted = contract_versions(versions, pinned)
+    return contracted, retained_copies
+
+
+def contract_versions(
+    versions: dict[str, Version], keep: set[str]
+) -> dict[str, Version]:
+    """Remove versions not in ``keep`` while preserving ancestry.
+
+    Each removed version's parents pass to its children, transitively,
+    so retained versions keep their ancestors. The input is unchanged.
+    """
+    pinned = set(keep)
     # Contract each removed edge into its children.
     contracted = dict(versions)
     removed = set(contracted) - pinned
@@ -344,7 +357,7 @@ def prune_history(
         )
 
     validate_graph(contracted)
-    return contracted, retained_copies
+    return contracted
 
 
 def sha256_file(

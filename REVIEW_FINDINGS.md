@@ -20,28 +20,21 @@ Round 1 (F1–F3) shipped as `v0.2.1`. Remaining rounds, each on its own
 branch with tests, committed locally and pushed only when work moves to
 `alpha`:
 
-F8, F9 and F10 are fixed on `main` (unreleased, not pushed). Acceptance
-beyond unit tests needs the `kp-test` profile; installing kp-sync or
-units on `beta` needs owner approval, otherwise use `--no-daemon` runs
-from the checkout.
+F4, F6, F7, F8, F9 and F10 are fixed on `main` (unreleased, not pushed);
+upgrading Black in `alpha`'s tools environment (F7) is a package install
+and needs its own approval there. Acceptance beyond unit tests needs the
+`kp-test` profile; installing kp-sync or units on `beta` needs owner
+approval, otherwise use `--no-daemon` runs from the checkout.
 
-1. **F4** (owner chose the recommended option on 2026-11-03; start only
-   when asked): upload missing bases from the fresh listing; when a base
-   exists nowhere, keep refusing to publish, name the version, and add an
-   explicit repair command rather than dropping versions automatically
-   (they may be merge ancestors).
-2. **F7** is fixed on `main` (pins `black>=26,<27`, `sphinx>=8,<10`;
-   strict docs build clean under Sphinx 9.2; separate formatting-only
-   commit). Upgrading Black in `alpha`'s tools environment
-   is a package install and needs its own approval there.
-3. **F6** is fixed on `main`.
-4. **F5** (owner chose option 2 on 2026-11-03; do not implement yet):
+Remaining, both recorded but not to be implemented yet:
+
+1. **F5** (owner chose option 2 on 2026-11-03; do not implement yet):
    take the probe shortcut only when the token includes a content hash;
    other rclone remotes and `command` endpoints download, unless an
    endpoint opts in (e.g. `probe_is_content_hash = true`) because its
    probe prints a real content hash. Document that a custom probe must
    change whenever the content changes.
-5. **F11** (proposal and optional `rcd` design recorded on 2026-11-03;
+2. **F11** (proposal and optional `rcd` design recorded on 2026-11-03;
    do not implement yet): batch per-run rclone transfers of history
    bases, then optionally a persistent `rcd` transport on rclone ≥ 1.61.
 
@@ -67,39 +60,7 @@ F1–F3 (test isolation: real daemon socket, checkout-location and umask
 dependence, KeePassXC 2.7 `import`) were fixed on `fix-test-isolation`;
 the full suite (443 tests) then passed on `beta`.
 
-## History publication
-
-### F4. A missing remote base blocks cloud publication (plausible)
-
-`BaselineManager.save` requires a reachable base for every retained version
-(`src/kp_sync/baseline.py:430`) but uploads a base to a store only when its
-version is absent from that store's recorded state (`:440-442`). Nothing
-restores a base that is listed in a store's state but missing as a file.
-Runtime base caches are pruned to retained versions and lost at logout.
-
-Since `v0.1.3`, configured pendrives also keep retained bases, so
-`ensure_base` can find a base missing from the cloud while such a pendrive
-is attached. The cloud copy is still never re-uploaded, though: the failure
-("cannot publish history: base … is unavailable") returns on every host
-without a cached copy whenever no pendrive holding the base is attached.
-The same applies to a base missing from a pendrive store.
-
-One way to get there, with no cross-host lock: host A publishes, re-checks,
-then deletes stale bases from the listing taken by that check
-(`:451-457`). If host B checked before A's publish and writes its state
-between A's re-check and A's deletes, A can delete a base that B's
-just-published state references. The window is several seconds for the
-cloud, because pruning deletes eight or more files one rclone call at a
-time. Manual or Drive-side deletion has the same effect.
-
-Fix: decide uploads per store from the fresh base listing that `check`
-already fetches, not from recorded versions. That also fixes the cost
-below. Consider whether a retained version whose base exists nowhere should
-block all publication or be dropped from the graph with a diagnostic.
-
-Related efficiency issue: after a reboot, the first publish calls
-`ensure_base` for every retained version and downloads every uncached base,
-even though only bases missing from a target need uploading.
+## Change detection
 
 ### F5. Size and modification time are trusted as content identity (plausible)
 

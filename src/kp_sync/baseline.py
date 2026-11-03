@@ -17,6 +17,20 @@ from kp_sync.paths import atomic_write, ensure_private_directory
 from kp_sync.state import HistoryState, StateError, merge_states
 
 
+class MissingBases(StateError):
+    """Retained versions whose base exists nowhere reachable."""
+
+    def __init__(self, missing) -> None:
+        self.missing = tuple(sorted(missing))
+        names = ", ".join(sha[:12] for sha in self.missing)
+        super().__init__(
+            "cannot publish history: no copy of the base of version(s) "
+            f"{names} exists in the runtime cache, an available history "
+            "store or a reachable database copy; run `kp-sync "
+            "repair-history` to inspect"
+        )
+
+
 class BaselineChanged(RuntimeError):
     """Raised when shared history changes during synchronization."""
 
@@ -278,6 +292,9 @@ class BaselineManager:
         self.publication_outcomes: dict[str, str] = {}
         # Best-effort replicas the last save left with outdated history.
         self.replica_failures: dict[str, str] = {}
+        # Retained versions whose base exists nowhere, found while their
+        # store's history was already current (nothing to publish).
+        self.lost_bases: set[str] = set()
 
     def _read(
         self,
@@ -315,6 +332,7 @@ class BaselineManager:
         self.snapshots = {}
         self.publication_outcomes = {}
         self.replica_failures = {}
+        self.lost_bases = set()
         for store in self.stores:
             try:
                 state = self._read(store, temporary, read_only=read_only)
@@ -362,11 +380,16 @@ class BaselineManager:
                     f"baseline {store.name} changed during sync"
                 )
 
-    def ensure_base(self, sha: str, temporary: Path) -> Path | None:
-        """Find a verified base in runtime cache or available stores.
+    def ensure_base(
+        self, sha: str, temporary: Path, sources=None
+    ) -> Path | None:
+        """Find a verified base in runtime cache, sources or stores.
 
-        Downloads are checked against the content-addressed SHA-256 and
-        cached privately. Returns ``None`` when no store has the base.
+        ``sources`` maps version hashes to local files believed to hold
+        those bytes, such as database copies observed in this run;
+        each is verified before use. Downloads are checked against the
+        content-addressed SHA-256 and cached privately. Returns ``None``
+        when no copy of the base is reachable.
         """
         if not re.fullmatch(r"[0-9a-f]{64}", sha):
             raise StateError("invalid baseline hash")
@@ -377,6 +400,23 @@ class BaselineManager:
             if inspect_kdbx(cache).sha256 != sha:
                 raise StateError(f"cached base has the wrong hash: {cache}")
             return cache
+        source = (sources or {}).get(sha)
+        if source is not None:
+            with tempfile.TemporaryDirectory(
+                prefix="base-source-", dir=temporary
+            ) as name:
+                # Verify a private copy: the source may be a live file
+                # that is saved again between a check and a copy.
+                staged = Path(name) / f"{sha}.kdbx"
+                try:
+                    FileEndpoint("base-source", Path(source)).fetch(staged)
+                    verified = inspect_kdbx(staged).sha256 == sha
+                except (OSError, KdbxError, EndpointUnavailable):
+                    verified = False
+                if verified:
+                    ensure_private_directory(cache.parent)
+                    FileEndpoint("baseline-cache", cache).store(staged)
+                    return cache
         for store in self.available:
             with tempfile.TemporaryDirectory(
                 prefix="base-", dir=temporary
@@ -405,7 +445,9 @@ class BaselineManager:
                 return cache
         return None
 
-    def save(self, state: HistoryState, temporary: Path) -> None:
+    def save(
+        self, state: HistoryState, temporary: Path, *, sources=None
+    ) -> None:
         """Publish required bases before state and prune stale data.
 
         Shared state is checked before publication. Without a reachable
@@ -415,6 +457,13 @@ class BaselineManager:
         recorded as outcomes; those left with outdated history are
         listed in ``replica_failures``. ``BaselineChanged`` always
         propagates.
+
+        Each store's missing retained bases are found from its actual
+        listing and uploaded first, also to stores whose history is
+        already current. ``sources`` are extra verified copies (see
+        :meth:`ensure_base`). Publishing new history with a base that
+        exists nowhere raises :class:`MissingBases`; for a current store
+        the versions are reported in ``lost_bases`` instead.
         """
         cloud = [store for store in self.available if store.cloud]
         targets = cloud[:1] + [
@@ -422,6 +471,7 @@ class BaselineManager:
         ]
         required = targets[0].name if targets else None
         self.replica_failures = {}
+        self.lost_bases = set()
         if not targets:
             info(
                 "no baseline store is available; history remains "
@@ -429,35 +479,30 @@ class BaselineManager:
             )
             return
         payload_dict = state.to_dict()
-        targets = [
-            store
-            for store in targets
-            if self.snapshots[store.name] != payload_dict
-        ]
         for store in self.available:
             if self.snapshots[store.name] == payload_dict:
                 self.publication_outcomes[store.name] = "already current"
-        if not targets:
-            return
-        # Retained bases must be durable before publishing the graph.
-        paths = {}
-        for sha in state.versions:
-            paths[sha] = self.ensure_base(sha, temporary)
-            if paths[sha] is None:
-                raise StateError(
-                    f"cannot publish history: base {sha} is unavailable"
-                )
         payload = temporary / "publish-state.json"
         state.save(payload)
         failed: set[str] = set()
         for store in targets:
+            current = self.snapshots[store.name] == payload_dict
             published = False
             try:
-                # Upload content-addressed bases before the check.
-                known = self.states[store.name].versions
-                for sha, path in paths.items():
-                    if sha not in known:
-                        store.put(f"bases/{sha}.kdbx", path)
+                # Upload content-addressed bases before the check,
+                # chosen from the store's files, not its recorded state.
+                lost = self._restore_bases(store, state, temporary, sources)
+                if lost:
+                    if not current:
+                        raise MissingBases(lost)
+                    error(f"{store.name}: {MissingBases(lost)}")
+                    self.lost_bases |= lost
+                    self.publication_outcomes[store.name] = (
+                        f"already current; {len(lost)} base(s) missing "
+                        "everywhere"
+                    )
+                if current:
+                    continue
                 self.check(temporary, skip=frozenset(failed))
                 # The check's listing identifies bases left to prune.
                 stale = self._stale_bases(store, state, cached=True)
@@ -497,6 +542,33 @@ class BaselineManager:
                     f"history publication to {store.name} failed; "
                     f"continuing without it: {reason}"
                 )
+
+    def _restore_bases(
+        self, store: Store, state: HistoryState, temporary: Path, sources
+    ) -> set[str]:
+        """Upload retained bases missing from ``store``.
+
+        Returns the versions whose base exists nowhere reachable.
+
+        A base counts as present only if the listing shows a file of the
+        version's recorded size (when known).
+        """
+        present = store.base_sizes()
+        lost = set()
+        restored = 0
+        for sha, version in sorted(state.versions.items()):
+            size = present.get(f"{sha}.kdbx")
+            if size is not None and (not version.size or size == version.size):
+                continue
+            path = self.ensure_base(sha, temporary, sources)
+            if path is None:
+                lost.add(sha)
+                continue
+            store.put(f"bases/{sha}.kdbx", path)
+            restored += 1
+        if restored:
+            info(f"{store.name}: uploaded {restored} missing base(s)")
+        return lost
 
     @staticmethod
     def _stale_bases(

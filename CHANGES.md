@@ -34,6 +34,19 @@ hold the details; design decisions live in the `design/` chapters.
   `kp-sync doctor`) also finds KeePassXC's settings under a custom
   `XDG_CONFIG_HOME` and in a Flatpak installation, instead of reporting
   the setting as missing.
+- A saved history copy (base) that disappears from the cloud or a
+  pendrive, for example because two machines pruned at the same time or
+  it was deleted by hand, is uploaded again from wherever a copy still
+  exists: the runtime cache, another history store or a database copy
+  seen in the same sync. After a reboot only the missing ones are
+  fetched. If a version's copy exists nowhere, kp-sync refuses to publish
+  new history and shows a dialog naming the affected version and the
+  repair command, which you must accept (otherwise it stays a pending
+  decision); the database copies keep synchronizing meanwhile.
+- New `kp-sync repair-history`: previews versions whose saved copies are
+  missing and whether they can be recovered; `--apply
+  --confirm-writers-paused` restores what it can and removes versions
+  whose copy exists nowhere, keeping the remaining history connected.
 
 ## 0.2.1 (2026-11-03)
 

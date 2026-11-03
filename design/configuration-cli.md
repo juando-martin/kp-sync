@@ -227,6 +227,13 @@ apply reports deleted filenames and partial errors in the same JSON report.
 The [baseline cleanup contract](history-and-sync.md#explicit-base-cleanup)
 owns retention and concurrency rules.
 
+`repair-history` previews retained versions whose base files are missing
+from available history stores and whether each is recoverable; it prints
+a JSON report and changes nothing. `--apply --confirm-writers-paused`
+restores recoverable bases and removes versions whose base exists nowhere.
+[Missing bases and repair](history-and-sync.md#missing-bases-and-repair)
+owns the rules.
+
 `service start|stop|restart|status daemon` manages the default daemon unit or
 the instance selected by `--profile`. It accepts no resource name, unlike
 the existing named SSH/access-owner commands. Custom configuration paths

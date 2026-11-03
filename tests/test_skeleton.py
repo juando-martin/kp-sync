@@ -147,6 +147,7 @@ class SkeletonTest(unittest.TestCase):
                 "history",
                 "retire-session",
                 "cleanup",
+                "repair-history",
             }:
                 continue
             with self.subTest(command=command):
@@ -156,6 +157,20 @@ class SkeletonTest(unittest.TestCase):
                         main([command])
                 self.assertEqual(raised.exception.code, 2)
                 self.assertIn("not implemented yet", output.getvalue())
+
+    def test_repair_apply_requires_confirmation_before_loading_config(
+        self,
+    ) -> None:
+        from unittest.mock import patch
+
+        output = io.StringIO()
+        with (
+            patch("kp_sync.cli.load_config") as load,
+            contextlib.redirect_stderr(output),
+        ):
+            self.assertEqual(main(["repair-history", "--apply"]), 2)
+        load.assert_not_called()
+        self.assertIn("--confirm-writers-paused", output.getvalue())
 
     def test_retirement_confirmation_mismatch_does_not_load_config(
         self,

@@ -21,7 +21,12 @@ from kp_sync.drives import DriveEndpoint
 from kp_sync.endpoints import EndpointUnavailable, FileEndpoint
 from kp_sync.endpoints.file import _RenameUnsupported
 from kp_sync.engine import SyncEngine, SyncError
-from kp_sync.history import CopyRecord, Version, sha256_file
+from kp_sync.history import (
+    CopyRecord,
+    Version,
+    contract_versions,
+    sha256_file,
+)
 from kp_sync.kdbx import inspect_kdbx
 from kp_sync.state import HistoryState
 from kp_sync.ui.none import NoneUI
@@ -334,6 +339,108 @@ class EngineTest(unittest.TestCase):
         )
         # The cloud holds the marker; the drive replica is best-effort.
         self.assertIsNone(result["publication_error"])
+
+    def test_sync_restores_a_lost_cloud_base_from_an_observed_copy(self):
+        from tests.test_baseline import FakeStore
+
+        data = kdbx4_bytes(b"lost cloud base" * 100)
+        state, sha = self._seed(data)
+        cloud = FakeStore(self.root / "baseline-cloud")
+        # Cloud history lists the version, but its base file is gone and
+        # this fresh runtime has no cached copy.
+        cloud.put("state.json", self.run_dir / "state.json")
+        self.assertFalse((self.run_dir / "bases" / f"{sha}.kdbx").exists())
+        engine = SyncEngine(
+            self.config,
+            (self.endpoint_a, self.endpoint_b),
+            run_directory=self.run_dir,
+            baseline_stores=(cloud,),
+            ui=NoneUI(),
+        )
+        result = engine.sync()
+        self.assertTrue(result.consistent)
+        self.assertEqual(
+            (cloud.root / "bases" / f"{sha}.kdbx").read_bytes(), data
+        )
+
+    def _lost_base_engine(self, ui):
+        from tests.test_baseline import FakeStore
+
+        lost = "b" * 64
+        data = kdbx4_bytes(b"current with lost ancestor" * 100)
+        self._write_all(data)
+        sha, size = sha256_file(str(self.hub_path))
+        state = HistoryState()
+        # Only a detached drive holds the ancestor; its base is gone.
+        state.commit(lost, (), "other", ("drive:serial:uuid",), size=9)
+        state.commit(
+            sha,
+            (lost,),
+            "test-host",
+            (self.engine.hub_identity, "file:a", "file:b"),
+            size=size,
+        )
+        state.save(self.run_dir / "state.json")
+        cloud = FakeStore(self.root / "baseline-cloud")
+        cloud.put(f"bases/{sha}.kdbx", self.hub_path)
+        cloud.put("state.json", self.run_dir / "state.json")
+        engine = SyncEngine(
+            self.config,
+            (self.endpoint_a, self.endpoint_b),
+            run_directory=self.run_dir,
+            baseline_stores=(cloud,),
+            ui=ui,
+        )
+        return engine, cloud, lost
+
+    def test_lost_base_with_current_history_is_a_visible_decision(self):
+        engine, _, lost = self._lost_base_engine(NoneUI())
+        with patch("kp_sync.baseline.error"):
+            result = engine.sync()
+        self.assertTrue(result.consistent)
+        decision = result.decisions["history-bases:lost"]
+        self.assertIn(lost[:12], decision["reason"])
+
+    def test_lost_base_refuses_publication_but_asks_instead_of_failing(self):
+        engine, cloud, lost = self._lost_base_engine(NoneUI())
+        published = (cloud.root / "state.json").read_bytes()
+        self.copy_a.write_bytes(
+            kdbx4_bytes(b"current, lost ancestor, new" * 100)
+        )
+        with patch("kp_sync.log.error") as logged:
+            result = engine.sync()
+        self.assertEqual(result.action, "committed", result.pending)
+        self.assertIn("repair-history", logged.call_args_list[0].args[0])
+        # History is refused, not published, and the user is asked.
+        self.assertEqual((cloud.root / "state.json").read_bytes(), published)
+        self.assertIn(
+            result.current,
+            HistoryState.load(self.run_dir / "state.json").versions,
+        )
+        self.assertIn(
+            lost[:12], result.decisions["history-bases:lost"]["reason"]
+        )
+
+    def test_accepted_lost_base_warning_clears_after_repair(self):
+        ui = FakeUI(confirmations=[True])
+        engine, cloud, lost = self._lost_base_engine(ui)
+        acknowledgements = self.run_dir / "replica-acknowledgements.json"
+        with patch("kp_sync.baseline.error"):
+            self.assertEqual(engine.sync().decisions, {})
+            self.assertEqual(engine.sync().decisions, {})
+        self.assertEqual(sum(event[0] == "confirm" for event in ui.events), 1)
+        self.assertIn("repair-history", ui.events[0][1])
+        self.assertTrue(acknowledgements.exists())
+        # As after repair-history: the lost ancestor leaves the history.
+        for path in (self.run_dir / "state.json", cloud.root / "state.json"):
+            state = HistoryState.load(path)
+            state.versions = contract_versions(
+                state.versions, set(state.versions) - {lost}
+            )
+            state.copies.pop("drive:serial:uuid")
+            state.save(path)
+        engine.sync()
+        self.assertFalse(acknowledgements.exists())
 
     def _unwritable_drive_engine(self, ui):
         old = kdbx4_bytes(b"drive copy before" * 100)
