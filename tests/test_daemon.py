@@ -1421,6 +1421,35 @@ class DaemonTest(unittest.TestCase):
         self.assertLessEqual(timeout, self.config.daemon["rescue_wait"])
         self.assertGreaterEqual(len(self.calls), 1)
 
+    def test_failed_run_does_not_retrigger_for_the_same_hub(self):
+        import hashlib
+
+        def fail():
+            # The run wrote the hub (atomically, by rename), then failed
+            # before committing.
+            staged = self.config.hub.with_name(".staged-synthetic")
+            staged.write_bytes(b"uncommitted synthetic change")
+            os.replace(staged, self.config.hub)
+            raise RuntimeError("synthetic persistent failure")
+
+        controller = self.controller(fail)
+        self.config.hub.write_bytes(b"committed synthetic data")
+        controller.last_written = hashlib.sha256(
+            b"committed synthetic data"
+        ).hexdigest()
+        controller.watch.read()  # The daemon's ticks start the watch.
+        with self.assertRaisesRegex(RuntimeError, "synthetic persistent"):
+            controller.sync()
+        controller.triggers.due = None
+        controller.tick()
+        controller.tick()
+        # No visible re-run (and progress dialog) on every tick.
+        self.assertIsNone(controller.triggers.due)
+        self.assertEqual(len(self.calls), 1)
+        self.config.hub.write_bytes(b"a later synthetic save")
+        controller.tick()
+        self.assertIsNotNone(controller.triggers.due)
+
     def test_save_after_engine_commit_is_not_mistaken_for_own_write(self):
         import hashlib
 

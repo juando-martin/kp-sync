@@ -297,6 +297,20 @@ for it. Unavailable history is not treated as an empty graph.
    where the endpoint allows it (rename for files, in-place `rclone copyto`
    for the cloud, staged copy for sessions).
 
+   A pendrive copy that cannot be written (read-only remount, full exFAT,
+   I/O error) is treated like an unreachable endpoint for this run, but
+   only when a fresh check after the failure shows it still holds exactly
+   the bytes read in step 2; a changed, missing or unreadable copy keeps
+   failing the run, so displacement and crash-recovery rules are
+   unaffected. The skipped drive keeps its copy record (it is `stale` and
+   retried next run), is excluded from that run's commit set and from
+   completing the in-flight candidate, and the run commits with every other
+   copy consistent. After the run's local work it is a user decision like
+   an outdated drive history (see "Baseline store"): accepted under the
+   same acknowledgement file until the drive copy is next current, or a
+   `drive-copy:<identity>` pending decision. Other endpoint types keep
+   failing the run on a write error.
+
    A writable file endpoint is promoted with Linux
    `renameat2(RENAME_EXCHANGE)`: the staged candidate and target are
    atomically swapped, then the displaced target is hashed. If it matches

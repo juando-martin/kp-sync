@@ -613,6 +613,8 @@ class SyncEngine:
         restore: RestoreSelection | None = None,
     ) -> SyncResult:
         self._ensure_runtime_dirs()
+        # Drive copies this run could not write, by identity.
+        self._copy_failures: dict[str, str] = {}
         self._verification_reference_credentials = None
         self._known_credentials = []
         self._credential_probes: tuple[Path, ...] = ()
@@ -1081,7 +1083,13 @@ class SyncEngine:
                     )
                 self._clear_pending()
                 self._finish_write_race()
-                self._confirm_replica_failures()
+                self._confirm_replica_failures(
+                    {
+                        item.identity
+                        for item in observations
+                        if item.sha256 == candidate_sha
+                    }
+                )
                 return SyncResult(
                     current=current,
                     action="unchanged",
@@ -1333,7 +1341,17 @@ class SyncEngine:
                         )
                     raise _RestartSync
                 except EndpointUnavailable as exc:
-                    raise SyncError(str(exc)) from exc
+                    if not self._unwritten_drive_copy(fresh_target):
+                        raise SyncError(str(exc)) from exc
+                    from kp_sync.log import error
+
+                    # Like an unreachable endpoint: retried next run.
+                    self._copy_failures[target.identity] = str(exc)
+                    error(
+                        f"cannot update {target.identity}; continuing "
+                        f"without it: {exc}"
+                    )
+                    continue
                 self._check_candidate(
                     target.endpoint,
                     candidate_sha,
@@ -1341,12 +1359,20 @@ class SyncEngine:
                     temporary,
                 )
 
-            target_ids = {target.identity for target in target_observations}
+            target_ids = {
+                target.identity
+                for target in target_observations
+                if target.identity not in self._copy_failures
+            }
             final_observations = {}
             for item in observations:
                 if item.sha256 is None:
                     continue
-                readonly = item.endpoint.readonly
+                # A skipped drive must still hold what was read.
+                readonly = (
+                    item.endpoint.readonly
+                    or item.identity in self._copy_failures
+                )
                 # The written target was verified by a fresh probe.
                 final_observations[item.identity] = self._confirm(
                     item.endpoint,
@@ -1390,6 +1416,7 @@ class SyncEngine:
                     identity: item.sha256
                     for identity, item in final_observations.items()
                 },
+                excused=self._copy_failures.keys(),
             )
             if (
                 len(resolved_inflight) == len(self._inflight_candidates)
@@ -1415,7 +1442,7 @@ class SyncEngine:
             self._clear_pending()
             self._finish_write_race()
             self._forget_copy_passwords()
-            self._confirm_replica_failures()
+            self._confirm_replica_failures(set(copy_keys))
             return SyncResult(
                 current=current,
                 action="committed",
@@ -3268,15 +3295,39 @@ class SyncEngine:
         self,
         committed_sha: str,
         confirmed_copies: dict[str, str | None],
+        *,
+        excused=(),
     ) -> set[str]:
+        # Excused drives were verified unchanged after a failed write,
+        # so they hold no candidate bytes needing recognition later.
         return {
             candidate.version.sha
             for candidate in self._inflight_candidates
             if all(
-                confirmed_copies.get(identity) == committed_sha
+                identity in excused
+                or confirmed_copies.get(identity) == committed_sha
                 for identity in candidate.targets
             )
         }
+
+    def _unwritten_drive_copy(self, observation: Observation) -> bool:
+        """Return whether a failed drive write left the copy unchanged.
+
+        Only a reachable pendrive copy whose bytes still match the
+        pre-write observation may be skipped; anything else (other
+        endpoint types, a changed, missing or unreadable copy, a
+        replaced drive) keeps failing the run.
+        """
+        endpoint = observation.endpoint
+        if not isinstance(endpoint, DriveEndpoint) or not observation.sha256:
+            return False
+        try:
+            endpoint._check_mount()
+            current = EndpointFingerprint.from_file(endpoint.path).sha256
+        except Exception:
+            # Not proven unchanged: keep failing the run.
+            return False
+        return current == observation.sha256
 
     def _finish_inflight_candidates(self, resolved: set[str]) -> None:
         remaining = [
@@ -3467,59 +3518,84 @@ class SyncEngine:
             return reason
         return None
 
-    def _confirm_replica_failures(self) -> None:
-        """Ask whether to continue without outdated pendrive history.
+    def _confirm_replica_failures(self, current_copies=()) -> None:
+        """Ask whether to continue without updating some pendrives.
 
-        Runs after the hub and required history store are committed, so
-        nothing is rolled back. Acceptance is kept privately until that
-        drive's history is next published; a refusal or a missing UI
-        leaves a pending decision, which the next run re-evaluates. The
-        sync result itself stays consistent.
+        Covers drive history left outdated (``drive-history:``) and
+        drive database copies that could not be written
+        (``drive-copy:``). Runs after the hub and required history store
+        are committed, so nothing is rolled back. Acceptance is kept
+        privately until that drive is next current; a refusal or a
+        missing UI leaves a pending decision, which the next run
+        re-evaluates. The sync result itself stays consistent.
+
+        Args:
+            current_copies: Identities holding the committed version
+                after this run; their accepted copy warnings clear.
         """
         from kp_sync.log import info
 
-        failures = getattr(self._baseline, "replica_failures", {})
         outcomes = getattr(self._baseline, "publication_outcomes", {})
+        failures = {}
+        for name, reason in getattr(
+            self._baseline, "replica_failures", {}
+        ).items():
+            failures[f"drive-history:{name}"] = (name, "history", reason)
+        for identity, reason in getattr(self, "_copy_failures", {}).items():
+            failures[f"drive-copy:{identity}"] = (identity, "copy", reason)
+
+        def still_outdated(key: str) -> bool:
+            kind, _, name = key.partition(":")
+            if key in failures:
+                return True
+            if kind == "drive-copy":
+                return name not in current_copies
+            outcome = outcomes.get(name, "")
+            return not (
+                outcome == "already current" or outcome.startswith("published")
+            )
+
         path = self.run_directory / "replica-acknowledgements.json"
         accepted = _read_replica_acknowledgements(path)
         current = {
-            name: reason
-            for name, reason in accepted.items()
-            if name in failures
-            or not (
-                outcomes.get(name, "") == "already current"
-                or outcomes.get(name, "").startswith("published")
-            )
+            key: reason
+            for key, reason in accepted.items()
+            if still_outdated(key)
         }
         pending = PendingStore(self.run_directory)
-        for name, reason in sorted(failures.items()):
-            if name in current:
+        for key, (name, kind, reason) in sorted(failures.items()):
+            if key in current:
                 continue
             label = _copy_display(name, self.config, {})[1]
-            answer = self.ui.confirm(
-                f"History on pendrive {label} could not be updated "
-                f"({reason}). The database and cloud history are "
-                "synchronized, but this pendrive keeps older history, so "
-                "it may not be recognized when starting offline. "
-                "Continue without updating it?",
-                default=False,
-            )
-            if answer is True:
-                info(f"continuing without updating history on {label}")
-                current[name] = reason
+            if kind == "history":
+                question = (
+                    f"History on pendrive {label} could not be updated "
+                    f"({reason}). The database and cloud history are "
+                    "synchronized, but this pendrive keeps older history, "
+                    "so it may not be recognized when starting offline. "
+                    "Continue without updating it?"
+                )
+                summary = f"history on pendrive {label} could not be updated"
+            else:
+                question = (
+                    f"The database on pendrive {label} could not be "
+                    f"updated ({reason}). The other copies are "
+                    "synchronized, but this pendrive keeps an older "
+                    "version until a later sync can write it. "
+                    "Continue without updating it?"
+                )
+                summary = f"database on pendrive {label} could not be updated"
+            if self.ui.confirm(question, default=False) is True:
+                info(f"continuing without updating {kind} on {label}")
+                current[key] = reason
                 continue
-            pending.save(
-                f"drive-history:{name}",
-                f"history on pendrive {label} could not be updated: "
-                f"{reason}",
-                {"store": name},
-            )
+            pending.save(key, f"{summary}: {reason}", {"store": name})
         if current != accepted:
             if current:
                 atomic_write(
                     path,
                     json.dumps(
-                        {"schema_version": 1, "stores": current},
+                        {"schema_version": 1, "accepted": current},
                         sort_keys=True,
                     )
                     + "\n",
@@ -3965,9 +4041,11 @@ def _read_replica_acknowledgements(path: Path) -> dict[str, str]:
         if path.is_symlink() or not path.is_file():
             raise ValueError("not a regular file")
         payload = json.loads(path.read_text())
-        stores = payload["stores"]
+        stores = payload["accepted"]
         if payload.get("schema_version") != 1 or not all(
-            isinstance(key, str) and isinstance(value, str)
+            isinstance(key, str)
+            and key.startswith(("drive-history:", "drive-copy:"))
+            and isinstance(value, str)
             for key, value in stores.items()
         ):
             raise ValueError("unsupported content")

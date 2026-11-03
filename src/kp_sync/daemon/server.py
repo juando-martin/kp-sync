@@ -317,6 +317,8 @@ class Controller:
         self.queued_request: dict = {}
         self.inflight = 0
         self.last_written = file_hash(config.hub)
+        # Hub hash a failed run left; not re-triggered until it changes.
+        self.failed_hub = None
         self.triggers = Triggers(
             debounce=config.daemon["debounce"],
             poll_interval=config.daemon["poll_interval"],
@@ -539,21 +541,31 @@ class Controller:
                 ui = self._ui(request, connection, progress)
                 engine = self.engine_factory(ui)
                 before = file_hash(self.config.hub)
-                with progress:
-                    if request.get("command") == "restore":
-                        outcome = engine.restore(
-                            request["source_kind"],
-                            request["source_value"],
-                            mode=request.get("restore_mode", "merge"),
-                            dry_run=request.get("dry_run", False),
-                        )
-                    else:
-                        outcome = engine.sync(
-                            dry_run=request.get("dry_run", False)
-                        )
+                try:
+                    with progress:
+                        if request.get("command") == "restore":
+                            outcome = engine.restore(
+                                request["source_kind"],
+                                request["source_value"],
+                                mode=request.get("restore_mode", "merge"),
+                                dry_run=request.get("dry_run", False),
+                            )
+                        else:
+                            outcome = engine.sync(
+                                dry_run=request.get("dry_run", False)
+                            )
+                except Exception:
+                    if not request.get("dry_run", False):
+                        with self.guard:
+                            # Drop this run's own hub events; a new save
+                            # or hash still triggers, polls still retry.
+                            self.watch.read()
+                            self.failed_hub = file_hash(self.config.hub)
+                    raise
                 after = file_hash(self.config.hub)
                 if not request.get("dry_run", False):
                     with self.guard:
+                        self.failed_hub = None
                         self.last_written = (
                             outcome.current
                             if outcome.action in {"committed", "unchanged"}
@@ -1560,7 +1572,13 @@ class Controller:
                 if (
                     not self.sync_gate.locked()
                     and current_hub != self.last_written
-                    and (saved or self.triggers.due is None)
+                    and (
+                        saved
+                        or (
+                            self.triggers.due is None
+                            and current_hub != self.failed_hub
+                        )
+                    )
                 ):
                     self.triggers.trigger()
                 self.watch.read()

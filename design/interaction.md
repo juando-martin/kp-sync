@@ -73,7 +73,12 @@
   rename, which breaks a watch on the file), waits `debounce`, and runs
   the full `sync`, so a concurrent cloud edit is merged rather than
   overwritten. Events caused by its own writes are ignored by comparing
-  the hub's hash with the one just written.
+  the hub's hash with the one just written. A failed run commits nothing,
+  so the hub can stay different from the last committed hash: the daemon
+  drops that run's own hub events and records the hub hash it failed
+  with, and re-triggers only for a new save or a different hash.
+  Otherwise each idle tick would start another visible sync (and progress
+  dialog). Silent polls keep retrying at `poll_interval`.
 - **Polling**: while a lease is held, endpoints are probed every
   `poll_interval`; the cloud `probe` makes that cheap when nothing
   changed. Without it, a phone edit would be seen only at the next local

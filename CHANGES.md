@@ -20,6 +20,16 @@ hold the details; design decisions live in the `design/` chapters.
   removing the copy after the key drive leaves now waits for any rclone
   run of the profile, in any process, so a running rclone can no longer
   overwrite a newly imported login or recreate a removed copy.
+- A pendrive whose database copy cannot be written (read-only remount,
+  full, I/O error) no longer fails every sync. If the copy is verified
+  unchanged after the failed write, that drive is skipped like an
+  unreachable one, the other copies are synchronized, and kp-sync asks
+  whether to continue without updating it (the same remembered answer
+  and pending decision as for pendrive history). A copy changed by the
+  failed write still stops the sync.
+- After a failed sync the daemon no longer starts a new visible sync,
+  with its progress dialog, every few seconds. It retries on the next
+  save, hub change or background poll.
 
 ## 0.2.1 (2026-11-03)
 

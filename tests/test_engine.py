@@ -335,6 +335,121 @@ class EngineTest(unittest.TestCase):
         # The cloud holds the marker; the drive replica is best-effort.
         self.assertIsNone(result["publication_error"])
 
+    def _unwritable_drive_engine(self, ui):
+        old = kdbx4_bytes(b"drive copy before" * 100)
+        new = kdbx4_bytes(b"drive copy after" * 100)
+        mount = self.root / "drive"
+        mount.mkdir()
+        drive = DriveEndpoint(
+            "pendrive",
+            mount,
+            "pass.kdbx",
+            "serial:uuid",
+            identity_resolver=lambda _: "serial:uuid",
+        )
+        drive.path.write_bytes(old)
+        self._write_all(old)
+        sha, size = sha256_file(str(self.hub_path))
+        state = HistoryState()
+        state.commit(
+            sha,
+            (),
+            "test-host",
+            (self.engine.hub_identity, "file:a", "file:b", drive.identity),
+            size=size,
+        )
+        state.save(self.run_dir / "state.json")
+        self.copy_a.write_bytes(new)
+        # Like a read-only remount: readable, but not replaceable.
+        mount.chmod(0o555)
+        self.addCleanup(mount.chmod, 0o755)
+        engine = SyncEngine(
+            self.config,
+            (self.endpoint_a, self.endpoint_b, drive),
+            run_directory=self.run_dir,
+            # Only the database copy is under test, not drive history.
+            baseline_stores=(),
+            ui=ui,
+        )
+        return engine, drive, mount, sha, sha256_file(str(self.copy_a))[0]
+
+    def test_unwritable_drive_copy_is_skipped_and_left_pending(self):
+        engine, drive, _, old, new = self._unwritable_drive_engine(NoneUI())
+        with patch("kp_sync.log.error") as logged:
+            result = engine.sync()
+
+        self.assertEqual(result.action, "committed")
+        self.assertEqual(result.current, new)
+        self.assertTrue(result.consistent)
+        self.assertNotIn(drive.identity, result.missing)
+        self.assertIn(drive.identity, logged.call_args.args[0])
+        self.assertEqual(sha256_file(str(self.hub_path))[0], new)
+        self.assertEqual(sha256_file(str(self.copy_b))[0], new)
+        self.assertEqual(sha256_file(str(drive.path))[0], old)
+        state = HistoryState.load(self.run_dir / "state.json")
+        self.assertEqual(state.copies[drive.identity].version, old)
+        self.assertEqual(state.copies["file:b"].version, new)
+        # The in-flight candidate does not wait for the skipped drive.
+        inflight = self.run_dir / "inflight.json"
+        if inflight.exists():
+            self.assertEqual(
+                json.loads(inflight.read_text())["candidates"], []
+            )
+        decision = result.decisions[f"drive-copy:{drive.identity}"]
+        self.assertIn("database on pendrive serial:uuid", decision["reason"])
+
+    def test_accepted_unwritable_drive_copy_clears_once_written(self):
+        ui = FakeUI(confirmations=[True])
+        engine, drive, mount, _, new = self._unwritable_drive_engine(ui)
+        acknowledgements = self.run_dir / "replica-acknowledgements.json"
+        with patch("kp_sync.log.error"):
+            result = engine.sync()
+            self.assertEqual(result.decisions, {})
+            self.assertIn(
+                f"drive-copy:{drive.identity}",
+                json.loads(acknowledgements.read_text())["accepted"],
+            )
+            # Still unwritable: accepted, so no new question.
+            result = engine.sync()
+        self.assertEqual(result.decisions, {})
+        self.assertEqual(sum(event[0] == "confirm" for event in ui.events), 1)
+        mount.chmod(0o755)
+        result = engine.sync()
+        self.assertEqual(sha256_file(str(drive.path))[0], new)
+        self.assertEqual(
+            HistoryState.load(self.run_dir / "state.json")
+            .copies[drive.identity]
+            .version,
+            new,
+        )
+        self.assertFalse(acknowledgements.exists())
+
+    def test_drive_copy_changed_by_failed_write_still_fails(self):
+        engine, drive, mount, old, _ = self._unwritable_drive_engine(NoneUI())
+        mount.chmod(0o755)
+
+        def partial(*args, **kwargs):
+            drive.path.write_bytes(kdbx4_bytes(b"torn write" * 100))
+            raise EndpointUnavailable("synthetic I/O error")
+
+        with patch.object(drive, "store_if_unchanged", side_effect=partial):
+            with self.assertRaisesRegex(SyncError, "synthetic I/O error"):
+                engine.sync()
+        state = HistoryState.load(self.run_dir / "state.json")
+        self.assertEqual(state.copies[drive.identity].version, old)
+        self.assertFalse((self.run_dir / "pending.json").exists())
+
+    def test_unwritable_plain_file_endpoint_still_fails(self):
+        engine, drive, mount, _, _ = self._unwritable_drive_engine(NoneUI())
+        mount.chmod(0o755)
+        with patch.object(
+            self.endpoint_b,
+            "store_if_unchanged",
+            side_effect=EndpointUnavailable("synthetic read-only file"),
+        ):
+            with self.assertRaisesRegex(SyncError, "synthetic read-only"):
+                engine.sync()
+
     def _replica_failure_engine(self, ui):
         from tests.test_baseline import FakeStore
 
