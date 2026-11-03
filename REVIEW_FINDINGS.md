@@ -26,17 +26,28 @@ and needs its own approval there. Acceptance beyond unit tests needs the
 `kp-test` profile; installing kp-sync or units on `beta` needs owner
 approval, otherwise use `--no-daemon` runs from the checkout.
 
-Remaining, both recorded but not to be implemented yet:
+Remaining, approved on 2026-11-04 for an unattended run (see "Unattended
+run" in NEXT_STEPS.md), in this order:
 
-1. **F5** (owner chose option 2 on 2026-11-03; do not implement yet):
-   take the probe shortcut only when the token includes a content hash;
-   other rclone remotes and `command` endpoints download, unless an
-   endpoint opts in (e.g. `probe_is_content_hash = true`) because its
-   probe prints a real content hash. Document that a custom probe must
-   change whenever the content changes.
-2. **F11** (proposal and optional `rcd` design recorded on 2026-11-03;
-   do not implement yet): batch per-run rclone transfers of history
-   bases, then optionally a persistent `rcd` transport on rclone ≥ 1.61.
+1. **F5** (option 2): take the probe shortcut only when the token
+   includes a content hash, where SHA-256, SHA-1 and MD5 all count;
+   other rclone remotes and `command` endpoints download every run unless
+   an endpoint sets `probe_is_content_hash = true` (default off) because
+   its probe prints a real content hash. Document that a custom probe must
+   change whenever the content changes. The owner confirmed `alpha` has no
+   `command` endpoints; its cloud is Google Drive (hashes listed), so
+   production behaviour is unchanged.
+2. **F11, part 1**, own branch: batch each run's base uploads, downloads
+   and deletes into one rclone call each (`copy`/`delete
+   --files-from-raw`), keeping `state.json` and the database as separate
+   ordered in-place writes.
+3. **F11, part 2**, own branch on top of part 1: the optional `rcd`
+   transport as designed below, with `rclone_transport = "cli"` as the
+   default and `"auto"` opt-in until it is tested on `alpha`. Open points
+   are decided conservatively: an `rcd` failure is handled exactly like a
+   failed rclone command (same exceptions, so the existing
+   retry/restart rules apply), each operation uses the endpoint's
+   `timeout`, and the decision is recorded in the owning design chapter.
 
 ## Scope
 
@@ -108,9 +119,10 @@ Keep `state.json` and the database as separate in-place `copyto` writes:
 their order (bases before state) and the shared-state re-checks between
 them are safety rules. Batching comes first; it works on rclone 1.60.1.
 
-Optional fast transport (owner agreed the design on 2026-11-03; do not
-implement yet): a persistent `rclone rcd`, used only when available and
-plain rclone calls otherwise.
+Optional fast transport (owner agreed the design on 2026-11-03; approved
+for implementation on 2026-11-04, see "Agreed order of work"): a
+persistent `rclone rcd`, used only when available and plain rclone calls
+otherwise.
 
 - *Requirement.* `rcd` listens on a Unix socket only from rclone 1.61
   (verified: 1.60.1 fails with `listen tcp: … unknown port` although its
