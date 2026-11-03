@@ -429,6 +429,100 @@ class RcloneEndpointTest(unittest.TestCase):
                 self.endpoint.remove_directory(path)
         self.assertEqual(self.runner.calls, [])
 
+    def test_batch_transfers_validate_names_and_skip_empty_lists(self):
+        directory = "GoogleDrive:kp-sync/bases"
+        work = self.root / "work"
+        work.mkdir(mode=0o700)
+        for name in ("", ".", "..", "a/b", "a\\b", "a\nb", "a\x00b"):
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    self.endpoint.delete_files(
+                        directory, [name], temporary=work
+                    )
+                with self.assertRaises(ValueError):
+                    self.endpoint.upload_files(
+                        {name: work}, directory, temporary=work
+                    )
+        for outside in ("Other:bases", "GoogleDrive:../x", "GoogleDrive:"):
+            with self.subTest(outside=outside):
+                with self.assertRaises(ValueError):
+                    self.endpoint.delete_files(
+                        outside, ["a.kdbx"], temporary=work
+                    )
+        self.endpoint.delete_files(directory, [], temporary=work)
+        self.endpoint.upload_files({}, directory, temporary=work)
+        empty = work / "empty"
+        empty.mkdir()
+        self.assertEqual(
+            self.endpoint.download_files(directory, [], empty), set()
+        )
+        self.assertEqual(self.runner.calls, [])
+        readonly = RcloneEndpoint(
+            "cloud", "GoogleDrive", readonly=True, runner=self.runner
+        )
+        with self.assertRaises(PermissionError):
+            readonly.delete_files(directory, ["a.kdbx"], temporary=work)
+        with self.assertRaises(PermissionError):
+            readonly.upload_files({"a.kdbx": work}, directory, temporary=work)
+
+    def test_batch_delete_lists_only_named_files_one_level_deep(self):
+        work = self.root / "work"
+        work.mkdir(mode=0o700)
+        seen = []
+
+        def runner(argv, **kwargs):
+            listing = argv[argv.index("--files-from-raw") + 1]
+            seen.append(Path(listing).read_text())
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        self.endpoint._runner = runner
+        self.endpoint.delete_files(
+            "GoogleDrive:kp-sync/bases", ["b.kdbx", "a.kdbx"], temporary=work
+        )
+        self.assertEqual(seen, ["a.kdbx\nb.kdbx\n"])
+        self.assertEqual(list(work.iterdir()), [])
+
+    def test_batch_download_needs_an_empty_directory_and_reports_present(
+        self,
+    ):
+        work = self.root / "work"
+        work.mkdir(mode=0o700)
+        target = work / "bases"
+        target.mkdir()
+        (target / "old").write_bytes(b"x")
+        with self.assertRaisesRegex(EndpointError, "must be empty"):
+            self.endpoint.download_files(
+                "GoogleDrive:kp-sync/bases", ["a.kdbx"], target
+            )
+        (target / "old").unlink()
+
+        def runner(argv, **kwargs):
+            destination = Path(argv[-1])
+            (destination / "a.kdbx").write_bytes(b"a")
+            (destination / "b.kdbx").symlink_to(destination / "a.kdbx")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        self.endpoint._runner = runner
+        with self.assertRaisesRegex(EndpointError, "regular file"):
+            self.endpoint.download_files(
+                "GoogleDrive:kp-sync/bases", ["a.kdbx", "b.kdbx"], target
+            )
+
+        def partial(argv, **kwargs):
+            (Path(argv[-1]) / "a.kdbx").write_bytes(b"a")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        for path in target.iterdir():
+            path.unlink()
+        self.endpoint._runner = partial
+        self.assertEqual(
+            self.endpoint.download_files(
+                "GoogleDrive:kp-sync/bases", ["a.kdbx", "c.kdbx"], target
+            ),
+            {"a.kdbx"},
+        )
+        self.assertEqual((target / "a.kdbx").stat().st_mode & 0o777, 0o600)
+
     def test_runner_is_resolved_at_construction_and_templates_validated(self):
         with patch("kp_sync.endpoints.rclone.subprocess.run", self.runner):
             endpoint = RcloneEndpoint("cloud", "GoogleDrive")

@@ -52,6 +52,12 @@ def _relative_path(value: str) -> str:
     return str(path)
 
 
+def _base_name(name: str) -> str:
+    if not re.fullmatch(r"[0-9a-f]{64}\.kdbx", name):
+        raise StateError(f"invalid base file name: {name!r}")
+    return name
+
+
 class DriveStore:
     """Baseline store rooted under an attached drive directory."""
 
@@ -115,6 +121,24 @@ class DriveStore:
     def delete_base(self, name: str) -> None:
         """Delete one named base from this store."""
         self._path(f"bases/{name}").unlink(missing_ok=True)
+
+    def put_bases(self, files: dict[str, Path], temporary: Path) -> None:
+        """Store several bases one by one (local writes are cheap)."""
+        for name, source in sorted(files.items()):
+            self.put(f"bases/{name}", source)
+
+    def fetch_bases(self, names, destination: Path) -> set[str]:
+        """Copy the named bases that exist into ``destination``."""
+        return {
+            name
+            for name in sorted(names)
+            if self.fetch(f"bases/{name}", destination / name)
+        }
+
+    def delete_bases(self, names, temporary: Path) -> None:
+        """Delete several named bases."""
+        for name in sorted(names):
+            self.delete_base(name)
 
     def base_sizes(self) -> dict[str, int]:
         """List regular, non-symlink bases and their sizes."""
@@ -245,6 +269,44 @@ class CloudStore:
         """Delete one content-addressed base from the remote store."""
         self.endpoint.delete_file(self._remote(f"bases/{name}"))
 
+    def put_bases(self, files: dict[str, Path], temporary: Path) -> None:
+        """Upload several bases with one remote call when supported."""
+        batch = getattr(self.endpoint, "upload_files", None)
+        if batch is None:
+            for name, source in sorted(files.items()):
+                self.put(f"bases/{name}", source)
+            return
+        batch(
+            {_base_name(name): source for name, source in files.items()},
+            self._remote("bases"),
+            temporary=temporary,
+        )
+
+    def fetch_bases(self, names, destination: Path) -> set[str]:
+        """Download the named bases that exist with one remote call.
+
+        The caller verifies every returned file before using it.
+        """
+        batch = getattr(self.endpoint, "download_files", None)
+        names = [_base_name(name) for name in names]
+        if batch is None:
+            return {
+                name
+                for name in sorted(names)
+                if self.fetch(f"bases/{name}", destination / name)
+            }
+        return batch(self._remote("bases"), names, destination)
+
+    def delete_bases(self, names, temporary: Path) -> None:
+        """Delete several bases with one remote call when supported."""
+        batch = getattr(self.endpoint, "delete_files", None)
+        names = [_base_name(name) for name in names]
+        if batch is None:
+            for name in sorted(names):
+                self.delete_base(name)
+            return
+        batch(self._remote("bases"), names, temporary=temporary)
+
     def base_sizes(self) -> dict[str, int]:
         """List base sizes without downloading database contents."""
         result = {}
@@ -271,7 +333,7 @@ class BaselineManager:
     """
 
     # Stale cloud bases are deleted in batches. Each pass costs a state
-    # re-check and one remote call per base; leftovers cost storage.
+    # re-check and one remote call; leftovers cost storage.
     PRUNE_BATCH = 8
 
     def __init__(self, runtime: Path, stores: Iterable[Store] = ()) -> None:
@@ -516,8 +578,11 @@ class BaselineManager:
                 ):
                     # Re-check deletion against a fresh listing.
                     self.check(temporary, skip=frozenset(failed))
-                    for name in self._stale_bases(store, state, cached=True):
-                        store.delete_base(name)
+                    _delete_bases(
+                        store,
+                        self._stale_bases(store, state, cached=True),
+                        temporary,
+                    )
             except BaselineChanged:
                 self.publication_outcomes[store.name] = (
                     "published; pruning interrupted by a concurrent change"
@@ -555,20 +620,83 @@ class BaselineManager:
         """
         present = store.base_sizes()
         lost = set()
-        restored = 0
-        for sha, version in sorted(state.versions.items()):
-            size = present.get(f"{sha}.kdbx")
-            if size is not None and (not version.size or size == version.size):
-                continue
+        needed = [
+            sha
+            for sha, version in sorted(state.versions.items())
+            if (size := present.get(f"{sha}.kdbx")) is None
+            or (version.size and size != version.size)
+        ]
+        self.prefetch_bases(needed, temporary, sources, exclude=store)
+        upload = {}
+        for sha in needed:
             path = self.ensure_base(sha, temporary, sources)
             if path is None:
                 lost.add(sha)
                 continue
-            store.put(f"bases/{sha}.kdbx", path)
-            restored += 1
-        if restored:
-            info(f"{store.name}: uploaded {restored} missing base(s)")
+            upload[f"{sha}.kdbx"] = path
+        if upload:
+            # One call for all bases; they still precede the state.
+            _put_bases(store, upload, temporary)
+            info(f"{store.name}: uploaded {len(upload)} missing base(s)")
         return lost
+
+    def prefetch_bases(
+        self, shas, temporary: Path, sources=None, *, exclude=None
+    ) -> None:
+        """Download missing bases into the runtime cache in batches.
+
+        Only an optimization before :meth:`ensure_base`: versions in the
+        runtime cache or ``sources`` are skipped, each store gets one
+        call for the rest, every file is verified by SHA-256 before it
+        is cached, and an unavailable store is skipped.
+        """
+        cache = self.runtime / "bases"
+        remaining = [
+            sha
+            for sha in sorted(set(shas))
+            if re.fullmatch(r"[0-9a-f]{64}", sha)
+            and not (cache / f"{sha}.kdbx").exists()
+            and not (cache / f"{sha}.kdbx").is_symlink()
+            and sha not in (sources or {})
+        ]
+        for store in self.available:
+            if len(remaining) < 2:
+                # A single base gains nothing over ensure_base.
+                return
+            if store is exclude:
+                continue
+            with tempfile.TemporaryDirectory(
+                prefix="bases-", dir=temporary
+            ) as name:
+                directory = Path(name) / "bases"
+                directory.mkdir(mode=0o700)
+                try:
+                    found = _fetch_bases(
+                        store, [f"{sha}.kdbx" for sha in remaining], directory
+                    )
+                except EndpointUnavailable as exc:
+                    info(f"bases unavailable from {store.name}: {exc}")
+                    continue
+                for sha in list(remaining):
+                    if f"{sha}.kdbx" not in found:
+                        continue
+                    downloaded = directory / f"{sha}.kdbx"
+                    try:
+                        digest = inspect_kdbx(downloaded).sha256
+                    except (OSError, KdbxError) as exc:
+                        raise StateError(
+                            f"invalid downloaded base {sha} from {store.name}"
+                        ) from exc
+                    if digest != sha:
+                        raise StateError(
+                            f"base {sha} failed hash verification from "
+                            f"{store.name}"
+                        )
+                    ensure_private_directory(cache)
+                    FileEndpoint(
+                        "baseline-cache", cache / f"{sha}.kdbx"
+                    ).store(downloaded)
+                    remaining.remove(sha)
 
     @staticmethod
     def _stale_bases(
@@ -580,6 +708,37 @@ class BaselineManager:
             if re.fullmatch(r"[0-9a-f]{64}\.kdbx", name)
             and name[:-5] not in state.versions
         ]
+
+
+def _put_bases(store: Store, files: dict[str, Path], temporary) -> None:
+    batch = getattr(store, "put_bases", None)
+    if batch is None:
+        for name, source in sorted(files.items()):
+            store.put(f"bases/{name}", source)
+    else:
+        batch(files, temporary)
+
+
+def _fetch_bases(store: Store, names: list[str], destination) -> set[str]:
+    batch = getattr(store, "fetch_bases", None)
+    if batch is not None:
+        return batch(names, destination)
+    return {
+        name
+        for name in names
+        if store.fetch(f"bases/{name}", destination / name)
+    }
+
+
+def _delete_bases(store: Store, names: list[str], temporary) -> None:
+    if not names:
+        return
+    batch = getattr(store, "delete_bases", None)
+    if batch is None:
+        for name in names:
+            store.delete_base(name)
+    else:
+        batch(names, temporary)
 
 
 def stores_from_endpoints(

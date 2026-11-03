@@ -32,10 +32,8 @@ run" in NEXT_STEPS.md), in this order:
 
 1. **F5**: done on `f5-probe-content-hash` (see
    `design/history-and-sync.md`, "Sync algorithm" step 2).
-2. **F11, part 1**, own branch: batch each run's base uploads, downloads
-   and deletes into one rclone call each (`copy`/`delete
-   --files-from-raw`), keeping `state.json` and the database as separate
-   ordered in-place writes.
+2. **F11, part 1**: done on `f11-batch-bases` (see
+   `design/history-and-sync.md`, "Save").
 3. **F11, part 2**, own branch on top of part 1: the optional `rcd`
    transport as designed below, with `rclone_transport = "cli"` as the
    default and `"auto"` opt-in until it is tested on `alpha`. Open points

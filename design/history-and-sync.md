@@ -53,6 +53,23 @@ Rules:
   also names stale bases. Stale cloud bases are deleted in batches (at
   least eight, after one more state check), since a leftover
   content-addressed base only costs storage; drive stores prune at once.
+  rclone's cost is per call (authentication and path lookups, 3–4 s on
+  Google Drive), not per byte, so each publication batches the bases of
+  one cloud store into one call per direction: missing bases are
+  uploaded with one `rclone copy --files-from-raw … --no-traverse`,
+  stale ones deleted with one `rclone delete --files-from-raw …
+  --max-depth 1` (never called with an empty list), and bases a drive
+  store lacks are first fetched from the cloud with one `copy` into a
+  private directory, each verified by SHA-256 before it enters the
+  runtime cache (a mismatch fails as for a single download; an
+  unreachable store is skipped and the bases are looked up one by one
+  as before). A failed batch fails like a failed single transfer; a
+  partial upload or delete is harmless because bases are content
+  addressed and the state is written only after all its bases. The
+  name list is a private runtime file. `state.json` and the database
+  stay separate, ordered in-place `copyto` writes with the shared-state
+  checks between them, and `kp-sync cleanup` keeps its per-base deletion
+  with a state re-check before each.
   New or merged copy records and drive-to-cloud reconciliation still
   publish immediately. An empty or outdated drive store is brought current
   even when cloud history is unchanged; identical stores incur no writes.

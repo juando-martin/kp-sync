@@ -3,12 +3,14 @@
 import hashlib
 import json
 import os
+import shutil
 import stat
 import subprocess
+import tempfile
 import time
 import uuid
 from pathlib import Path, PurePosixPath
-from typing import Callable, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 
 from kp_sync.endpoints.base import (
     Endpoint,
@@ -674,6 +676,201 @@ class RcloneEndpoint(Endpoint):
             self._execute(("rclone", "copyto", str(source), remote_path))
         finally:
             self._listing = None
+
+    @staticmethod
+    def _batch_names(names: Iterable[str]) -> list[str]:
+        result = sorted(set(names))
+        for name in result:
+            if (
+                not isinstance(name, str)
+                or not name
+                or name in {".", ".."}
+                or any(char in name for char in "/\\\n\r\x00")
+            ):
+                raise ValueError(f"unsafe batch file name: {name!r}")
+        return result
+
+    def _files_from(self, names: list[str], directory: Path) -> Path:
+        # One name per line, read raw: no globbing or comments.
+        listing = directory / "files-from.txt"
+        atomic_write(listing, "".join(f"{name}\n" for name in names).encode())
+        return listing
+
+    def upload_files(
+        self,
+        files: Mapping[str, str | Path],
+        remote_directory: str,
+        *,
+        temporary: str | Path,
+    ) -> None:
+        """Upload several files into one remote directory in one call.
+
+        Args:
+            files: Remote file name mapped to its local source.
+            remote_directory: Fully qualified destination directory.
+            temporary: Private local directory for staging.
+
+        Raises:
+            PermissionError: If the endpoint is read-only.
+            ValueError: If a name or the directory is unsafe.
+            EndpointUnavailable: If the upload fails; some files may
+                already have been uploaded.
+
+        Notes:
+            Meant for content-addressed files, where a partial upload is
+            harmless. Uses ``copy --files-from-raw --no-traverse``.
+        """
+        self._writable()
+        self._child_path(remote_directory)
+        names = self._batch_names(files)
+        if not names:
+            return
+        with tempfile.TemporaryDirectory(
+            prefix="rclone-upload-", dir=temporary
+        ) as name:
+            staging = Path(name) / "files"
+            staging.mkdir(mode=0o700)
+            for item in names:
+                source = Path(files[item])
+                try:
+                    os.link(source, staging / item, follow_symlinks=False)
+                except OSError:
+                    shutil.copyfile(source, staging / item)
+            listing = self._files_from(names, Path(name))
+            try:
+                self._execute(
+                    (
+                        "rclone",
+                        "copy",
+                        "--files-from-raw",
+                        str(listing),
+                        "--no-traverse",
+                        str(staging),
+                        remote_directory,
+                    )
+                )
+            finally:
+                self._listing = None
+
+    def download_files(
+        self,
+        remote_directory: str,
+        names: Iterable[str],
+        destination: str | Path,
+    ) -> set[str]:
+        """Download several files from one remote directory in one call.
+
+        Args:
+            remote_directory: Fully qualified source directory.
+            names: File names below ``remote_directory``.
+            destination: Empty private local directory to fill.
+
+        Returns:
+            Names now present in ``destination`` as regular files;
+            absent remote files are simply missing from the result.
+
+        Raises:
+            ValueError: If a name or the directory is unsafe.
+            EndpointUnavailable: If the download fails.
+            EndpointError: If the destination is not an empty directory.
+
+        Notes:
+            The caller must verify each file's content before use.
+        """
+        self._child_path(remote_directory)
+        names = self._batch_names(names)
+        target = Path(destination)
+        try:
+            metadata = target.lstat()
+        except OSError as exc:
+            raise EndpointError(
+                f"{self.name}: download directory is missing"
+            ) from exc
+        if not stat.S_ISDIR(metadata.st_mode) or any(target.iterdir()):
+            raise EndpointError(
+                f"{self.name}: download directory must be empty"
+            )
+        if not names:
+            return set()
+        with tempfile.TemporaryDirectory(
+            prefix="rclone-download-", dir=target.parent
+        ) as name:
+            listing = self._files_from(names, Path(name))
+            try:
+                self._execute(
+                    (
+                        "rclone",
+                        "copy",
+                        "--files-from-raw",
+                        str(listing),
+                        "--no-traverse",
+                        remote_directory,
+                        str(target),
+                    )
+                )
+            except EndpointMissing:
+                return set()
+        present = set()
+        for item in names:
+            path = target / item
+            try:
+                if not stat.S_ISREG(path.lstat().st_mode):
+                    raise EndpointError(
+                        f"{self.name}: download did not produce a "
+                        "regular file"
+                    )
+            except FileNotFoundError:
+                continue
+            os.chmod(path, 0o600, follow_symlinks=False)
+            present.add(item)
+        return present
+
+    def delete_files(
+        self,
+        remote_directory: str,
+        names: Iterable[str],
+        *,
+        temporary: str | Path,
+    ) -> None:
+        """Delete several files directly within one remote directory.
+
+        Args:
+            remote_directory: Fully qualified directory path.
+            names: File names directly below it; absent ones are fine.
+            temporary: Private local directory for the name list.
+
+        Raises:
+            PermissionError: If the endpoint is read-only.
+            ValueError: If a name or the directory is unsafe.
+            EndpointUnavailable: If deletion fails; some files may
+                already be deleted.
+        """
+        self._writable()
+        self._child_path(remote_directory)
+        names = self._batch_names(names)
+        if not names:
+            # An empty list must never reach rclone delete.
+            return
+        with tempfile.TemporaryDirectory(
+            prefix="rclone-delete-", dir=temporary
+        ) as name:
+            listing = self._files_from(names, Path(name))
+            try:
+                self._execute(
+                    (
+                        "rclone",
+                        "delete",
+                        "--files-from-raw",
+                        str(listing),
+                        "--max-depth",
+                        "1",
+                        remote_directory,
+                    )
+                )
+            except EndpointMissing:
+                pass
+            finally:
+                self._listing = None
 
     def _child_path(self, remote_path: str) -> None:
         separator = "" if self.root.endswith(":") else "/"

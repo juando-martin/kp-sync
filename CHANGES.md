@@ -5,6 +5,14 @@ hold the details; design decisions live in the `design/` chapters.
 
 ## Unreleased
 
+### Changed
+
+- Cloud history is faster to publish: all history copies (bases) a sync
+  uploads, downloads or prunes go to the cloud in one rclone call per
+  direction instead of one call per file (each call costs several
+  seconds on Google Drive). `state.json` and the database are still
+  written separately and in order.
+
 ### Fixed
 
 - A copy is no longer taken as unchanged just because its size and
