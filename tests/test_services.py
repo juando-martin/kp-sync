@@ -1,3 +1,4 @@
+import os
 import socket
 import subprocess
 import signal
@@ -20,6 +21,9 @@ from kp_sync.services import (
 
 class ServicesTest(unittest.TestCase):
     def setUp(self):
+        # Fixture files model kp-sync-installed files, which are never
+        # group-writable; do not inherit a permissive user umask.
+        self.addCleanup(os.umask, os.umask(0o022))
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

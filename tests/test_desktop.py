@@ -25,7 +25,7 @@ from kp_sync.drives import Drive
 from kp_sync.state import HistoryState
 from kp_sync.pending import PendingStore
 
-from tests.fixtures import write_kdbx4
+from tests.fixtures import private_tempdir, write_kdbx4
 
 
 class FakeSystemd:
@@ -71,7 +71,7 @@ class FakeDBus:
 
 class DesktopTest(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=Path.cwd())
+        self.temp = private_tempdir()
         self.root = Path(self.temp.name)
         self.runtime = self.root / "runtime"
         self.runtime.mkdir()
