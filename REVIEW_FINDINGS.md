@@ -30,12 +30,16 @@ from the checkout.
    exists nowhere, keep refusing to publish, name the version, and add an
    explicit repair command rather than dropping versions automatically
    (they may be merge ancestors).
-2. **F7 and F5**, after owner decisions. Recommended: move both laptops to
-   Black 26 and reformat in a separate commit (`alpha` has Black 25.12,
-   which is clean today); widen the Sphinx pin only if the strict build
-   passes under 9.2. For F5, take the probe shortcut only when the token
-   includes a content hash; `command` endpoints always download.
-3. **F6**: leave open until a Flatpak or custom-config KeePassXC is used.
+2. **F7** (owner chose option a on 2026-11-03): move both laptops to
+   Black 26 and reformat in a separate formatting-only commit; widen the
+   Sphinx pin only if the strict build passes under 9.2. Upgrading Black
+   in `alpha`'s tools environment is a package install and needs its own
+   approval there.
+3. **F6** (owner approved fixing it on 2026-11-03): also read the
+   KeePassXC setting under `XDG_CONFIG_HOME` and the Flatpak config path.
+4. **F5**: under discussion with the owner. Recommended so far: take the
+   probe shortcut only when the token includes a content hash; `command`
+   endpoints always download.
 
 ## Scope
 
