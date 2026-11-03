@@ -332,10 +332,97 @@ class EngineTest(unittest.TestCase):
             result["shared_stores"]["drive:synthetic"],
             "failed: OSError: synthetic drive publication failure",
         )
-        self.assertEqual(
-            result["publication_error"],
-            "OSError: synthetic drive publication failure",
+        # The cloud holds the marker; the drive replica is best-effort.
+        self.assertIsNone(result["publication_error"])
+
+    def _replica_failure_engine(self, ui):
+        from tests.test_baseline import FakeStore
+
+        class FailingDrive(FakeStore):
+            broken = True
+
+            def put(self, relative, source):
+                if self.broken:
+                    raise OSError("synthetic full drive")
+                super().put(relative, source)
+
+        data = kdbx4_bytes(b"replica failure" * 100)
+        state, sha = self._seed(data)
+        cloud = FakeStore(self.root / "baseline-cloud")
+        base = self.root / "seed.kdbx"
+        base.write_bytes(data)
+        cloud.put(f"bases/{sha}.kdbx", base)
+        cloud.put("state.json", self.run_dir / "state.json")
+        drive = FailingDrive(
+            self.root / "baseline-drive", name="drive:synthetic", cloud=False
         )
+        engine = SyncEngine(
+            self.config,
+            (self.endpoint_a,),
+            run_directory=self.run_dir,
+            baseline_stores=(cloud, drive),
+            ui=ui,
+        )
+        return engine, cloud, drive, sha
+
+    def test_failing_drive_replica_does_not_fail_cloud_published_sync(self):
+        engine, cloud, drive, sha = self._replica_failure_engine(NoneUI())
+        with patch("kp_sync.baseline.error") as logged:
+            result = engine.sync()
+
+        # Hub and cloud are done; only the drive warning is deferred.
+        self.assertIsNone(result.pending)
+        self.assertTrue(result.consistent)
+        self.assertEqual(result.current, sha)
+        self.assertIn("drive:synthetic", logged.call_args.args[0])
+        self.assertEqual(
+            HistoryState.load(cloud.root / "state.json").to_dict(),
+            HistoryState.load(self.run_dir / "state.json").to_dict(),
+        )
+        self.assertFalse((drive.root / "state.json").exists())
+        self.assertTrue((self.run_dir / "last-sync.json").exists())
+        decision = result.decisions["drive-history:drive:synthetic"]
+        self.assertIn("synthetic full drive", decision["reason"])
+        self.assertFalse(
+            (self.run_dir / "replica-acknowledgements.json").exists()
+        )
+
+    def test_declined_drive_replica_warning_stays_pending(self):
+        ui = FakeUI(confirmations=[False])
+        engine, _, _, _ = self._replica_failure_engine(ui)
+        with patch("kp_sync.baseline.error"):
+            result = engine.sync()
+        prompts = [event for event in ui.events if event[0] == "confirm"]
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("pendrive synthetic", prompts[0][1])
+        self.assertIn("drive-history:drive:synthetic", result.decisions)
+        self.assertTrue(result.consistent)
+
+    def test_accepted_drive_replica_warning_is_kept_until_it_publishes(self):
+        ui = FakeUI(confirmations=[True])
+        engine, _, drive, _ = self._replica_failure_engine(ui)
+        acknowledgements = self.run_dir / "replica-acknowledgements.json"
+        with patch("kp_sync.baseline.error"):
+            result = engine.sync()
+            self.assertEqual(result.decisions, {})
+            self.assertEqual(acknowledgements.stat().st_mode & 0o777, 0o600)
+            # Still failing: accepted, so no new question or decision.
+            result = engine.sync()
+        self.assertEqual(result.decisions, {})
+        self.assertEqual(sum(event[0] == "confirm" for event in ui.events), 1)
+        drive.broken = False
+        result = engine.sync()
+        self.assertTrue((drive.root / "state.json").exists())
+        self.assertFalse(acknowledgements.exists())
+        drive.broken = True
+        with patch("kp_sync.baseline.error"):
+            # Changed history makes the drive outdated again.
+            state = HistoryState.load(self.run_dir / "state.json")
+            state.record_copies(result.current, ["hub:elsewhere"], "other")
+            state.save(self.run_dir / "state.json")
+            result = engine.sync()
+        self.assertEqual(sum(event[0] == "confirm" for event in ui.events), 2)
+        self.assertIn("drive-history:drive:synthetic", result.decisions)
 
     def test_online_sync_seeds_drive_history_for_cold_offline_boot(self):
         from kp_sync.baseline import DriveStore

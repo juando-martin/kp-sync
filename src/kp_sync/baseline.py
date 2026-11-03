@@ -12,7 +12,7 @@ from kp_sync.drives import DriveEndpoint
 from kp_sync.endpoints.base import EndpointUnavailable
 from kp_sync.endpoints.file import FileEndpoint
 from kp_sync.kdbx import KdbxError, inspect_kdbx
-from kp_sync.log import info
+from kp_sync.log import error, info
 from kp_sync.paths import atomic_write, ensure_private_directory
 from kp_sync.state import HistoryState, StateError, merge_states
 
@@ -276,6 +276,8 @@ class BaselineManager:
         self.states: dict[str, HistoryState] = {}
         self.available: list[Store] = []
         self.publication_outcomes: dict[str, str] = {}
+        # Best-effort replicas the last save left with outdated history.
+        self.replica_failures: dict[str, str] = {}
 
     def _read(
         self,
@@ -312,6 +314,7 @@ class BaselineManager:
         self.states = {}
         self.snapshots = {}
         self.publication_outcomes = {}
+        self.replica_failures = {}
         for store in self.stores:
             try:
                 state = self._read(store, temporary, read_only=read_only)
@@ -333,12 +336,17 @@ class BaselineManager:
         *,
         max_age: float | None = None,
         read_only: bool = False,
+        skip: frozenset[str] = frozenset(),
     ) -> None:
         """Fail if shared history changed.
 
-        ``max_age`` permits reuse of a very recent listing.
+        ``max_age`` permits reuse of a very recent listing. Stores named
+        in ``skip`` (best-effort replicas that already failed) are not
+        read.
         """
         for store in self.available:
+            if store.name in skip:
+                continue
             try:
                 state = self._read(
                     store, temporary, max_age, read_only=read_only
@@ -401,12 +409,19 @@ class BaselineManager:
         """Publish required bases before state and prune stale data.
 
         Shared state is checked before publication. Without a reachable
-        store, the runtime cache remains authoritative.
+        store, the runtime cache remains authoritative. The first store
+        (the cloud, else the first drive) is required; later drive
+        stores are best-effort replicas whose failures are logged and
+        recorded as outcomes; those left with outdated history are
+        listed in ``replica_failures``. ``BaselineChanged`` always
+        propagates.
         """
         cloud = [store for store in self.available if store.cloud]
         targets = cloud[:1] + [
             store for store in self.available if not store.cloud
         ]
+        required = targets[0].name if targets else None
+        self.replica_failures = {}
         if not targets:
             info(
                 "no baseline store is available; history remains "
@@ -434,17 +449,20 @@ class BaselineManager:
                 )
         payload = temporary / "publish-state.json"
         state.save(payload)
+        failed: set[str] = set()
         for store in targets:
+            published = False
             try:
                 # Upload content-addressed bases before the check.
                 known = self.states[store.name].versions
                 for sha, path in paths.items():
                     if sha not in known:
                         store.put(f"bases/{sha}.kdbx", path)
-                self.check(temporary)
+                self.check(temporary, skip=frozenset(failed))
                 # The check's listing identifies bases left to prune.
                 stale = self._stale_bases(store, state, cached=True)
                 store.put("state.json", payload)
+                published = True
                 self.snapshots[store.name] = state.to_dict()
                 self.states[store.name] = state
                 self.publication_outcomes[store.name] = "published"
@@ -452,14 +470,33 @@ class BaselineManager:
                     not store.cloud or len(stale) >= self.prune_batch
                 ):
                     # Re-check deletion against a fresh listing.
-                    self.check(temporary)
+                    self.check(temporary, skip=frozenset(failed))
                     for name in self._stale_bases(store, state, cached=True):
                         store.delete_base(name)
-            except Exception as exc:
+            except BaselineChanged:
                 self.publication_outcomes[store.name] = (
-                    f"failed: {type(exc).__name__}: {exc}"
+                    "published; pruning interrupted by a concurrent change"
+                    if published
+                    else "failed: shared history changed"
                 )
                 raise
+            except Exception as exc:
+                reason = f"{type(exc).__name__}: {exc}"
+                self.publication_outcomes[store.name] = (
+                    f"published; pruning failed: {reason}"
+                    if published
+                    else f"failed: {reason}"
+                )
+                if store.cloud or store.name == required:
+                    raise
+                # The required store already holds this state.
+                failed.add(store.name)
+                if not published:
+                    self.replica_failures[store.name] = reason
+                error(
+                    f"history publication to {store.name} failed; "
+                    f"continuing without it: {reason}"
+                )
 
     @staticmethod
     def _stale_bases(

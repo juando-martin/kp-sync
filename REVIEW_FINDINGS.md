@@ -20,11 +20,10 @@ Round 1 (F1–F3) shipped as `v0.2.1`. Remaining rounds, each on its own
 branch with tests, committed locally and pushed only when work moves to
 `alpha`:
 
-1. **F9, then F8** (owner agreed to proceed). Record F9's best-effort
-   pendrive publication in `design/history-and-sync.md` before coding.
-   Acceptance beyond unit tests needs the `kp-test` profile; installing
-   kp-sync or units on `beta` needs owner approval, otherwise use
-   `--no-daemon` runs from the checkout.
+1. **F8** (owner agreed to proceed; F9 is fixed on `main`). Acceptance
+   beyond unit tests needs the `kp-test` profile; installing kp-sync or
+   units on `beta` needs owner approval, otherwise use `--no-daemon`
+   runs from the checkout.
 2. **F4**, after an owner decision. Recommended: upload missing bases from
    the fresh listing; when a base exists nowhere, keep refusing to
    publish, name the version, and add an explicit repair command rather
@@ -35,6 +34,9 @@ branch with tests, committed locally and pushed only when work moves to
    passes under 9.2. For F5, take the probe shortcut only when the token
    includes a content hash; `command` endpoints always download.
 4. **F6**: leave open until a Flatpak or custom-config KeePassXC is used.
+5. **F10**, found in the F9 live test; needs an owner decision on
+   whether an unwritable drive copy is skipped like an unreachable
+   endpoint or confirmed through the UI like F9, and on the retry loop.
 
 ## Scope
 
@@ -57,6 +59,32 @@ the UI modules.
 F1–F3 (test isolation: real daemon socket, checkout-location and umask
 dependence, KeePassXC 2.7 `import`) were fixed on `fix-test-isolation`;
 the full suite (443 tests) then passed on `beta`.
+
+## Drive writes
+
+### F10. An unwritable drive database copy fails every sync in a loop (confirmed)
+
+Reproduced on `beta` on 2026-11-03 with the `kp-test` profile and
+KEYDRIVE remounted read-only (`udisksctl mount -o ro`). A changed copy
+made the drive's `kp-test.kdbx` a stale target; its write failed with
+`pendrive: cannot store …: [Errno 30] Read-only file system`, and the
+whole run failed before history publication. Nothing was committed and
+no pending decision was written; the hub and the changed copy kept the
+change. This is the database-copy counterpart of F9: a read-only remount,
+full exFAT or I/O error makes every sync fail while that drive is
+attached.
+
+The daemon then re-ran the sync every few seconds (the uncommitted hub
+change re-triggers it; the exact trigger path is not yet traced), each
+run showing the progress dialog, until it was stopped. Its shutdown sync
+failed the same way and offered the unsynced-hub rescue dialog. Polls are
+meant to run without a progress dialog, so either these runs were not
+treated as polls or failures need back-off.
+
+Fix (owner decision): treat a write error on a reachable drive copy like
+an unreachable endpoint (skip it, report it, keep the other copies
+consistent) or confirm it through the UI as F9 does; and back off
+repeated failing runs instead of re-triggering immediately.
 
 ## History publication
 
@@ -145,21 +173,6 @@ Failure scenarios:
 Fix: serialize every rclone invocation and every refresh/finish/discard of
 a profile's copy under one lock: a dedicated `rclone-credentials.lock`,
 shared for rclone runs and exclusive for refresh and drain.
-
-### F9. A pendrive history failure fails the whole sync (plausible)
-
-Since `v0.1.3`, `BaselineManager.save` publishes to the primary cloud and
-then every attached writable pendrive in one loop, re-raising any store
-error (`baseline.py:406-462`). The engine commits runtime state before
-calling it and does not catch the error, so `_finish_inflight_candidates`,
-`_prune_cached_bases`, `_clear_pending` and `_finish_write_race` are
-skipped and the run reports failure. A pulled drive surfaces as
-`BaselineChanged` and the run restarts cleanly, but a persistent drive
-error (exFAT full, read-only remount, I/O error) makes every sync fail
-while that drive is attached, even though the cloud publish succeeded.
-Fix: treat pendrive replicas as best-effort after the primary target
-(record a `failed:` publication outcome and continue), keeping the
-existing behavior when a drive is the only reachable store.
 
 ## Minor
 

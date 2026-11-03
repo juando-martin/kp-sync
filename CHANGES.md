@@ -3,6 +3,19 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Fixed
+
+- A pendrive whose history cannot be updated (full, read-only remount,
+  I/O error) no longer fails every sync while it is attached. Once the
+  cloud (or the first drive when offline) holds the new history, the
+  failure is logged and kp-sync asks whether to continue without updating
+  that pendrive. Accepting is remembered until the drive's history is
+  next updated; declining, or a background sync without a dialog, leaves
+  a pending decision (`kp-sync resolve` asks again). Launching, kp-access
+  and ejecting the drive are not blocked.
+
 ## 0.2.1 (2026-11-03)
 
 Maintenance release: test isolation fixes found by the code review on the

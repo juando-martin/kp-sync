@@ -1081,6 +1081,7 @@ class SyncEngine:
                     )
                 self._clear_pending()
                 self._finish_write_race()
+                self._confirm_replica_failures()
                 return SyncResult(
                     current=current,
                     action="unchanged",
@@ -1414,6 +1415,7 @@ class SyncEngine:
             self._clear_pending()
             self._finish_write_race()
             self._forget_copy_passwords()
+            self._confirm_replica_failures()
             return SyncResult(
                 current=current,
                 action="committed",
@@ -3465,6 +3467,66 @@ class SyncEngine:
             return reason
         return None
 
+    def _confirm_replica_failures(self) -> None:
+        """Ask whether to continue without outdated pendrive history.
+
+        Runs after the hub and required history store are committed, so
+        nothing is rolled back. Acceptance is kept privately until that
+        drive's history is next published; a refusal or a missing UI
+        leaves a pending decision, which the next run re-evaluates. The
+        sync result itself stays consistent.
+        """
+        from kp_sync.log import info
+
+        failures = getattr(self._baseline, "replica_failures", {})
+        outcomes = getattr(self._baseline, "publication_outcomes", {})
+        path = self.run_directory / "replica-acknowledgements.json"
+        accepted = _read_replica_acknowledgements(path)
+        current = {
+            name: reason
+            for name, reason in accepted.items()
+            if name in failures
+            or not (
+                outcomes.get(name, "") == "already current"
+                or outcomes.get(name, "").startswith("published")
+            )
+        }
+        pending = PendingStore(self.run_directory)
+        for name, reason in sorted(failures.items()):
+            if name in current:
+                continue
+            label = _copy_display(name, self.config, {})[1]
+            answer = self.ui.confirm(
+                f"History on pendrive {label} could not be updated "
+                f"({reason}). The database and cloud history are "
+                "synchronized, but this pendrive keeps older history, so "
+                "it may not be recognized when starting offline. "
+                "Continue without updating it?",
+                default=False,
+            )
+            if answer is True:
+                info(f"continuing without updating history on {label}")
+                current[name] = reason
+                continue
+            pending.save(
+                f"drive-history:{name}",
+                f"history on pendrive {label} could not be updated: "
+                f"{reason}",
+                {"store": name},
+            )
+        if current != accepted:
+            if current:
+                atomic_write(
+                    path,
+                    json.dumps(
+                        {"schema_version": 1, "stores": current},
+                        sort_keys=True,
+                    )
+                    + "\n",
+                )
+            elif os.path.lexists(path):
+                path.unlink()
+
     def _clear_pending(self) -> None:
         pending = PendingStore(self.run_directory)
         for key in tuple(pending.load()["decisions"]):
@@ -3891,6 +3953,29 @@ def _status_details(
         "pending_decisions": len(decisions),
     }
     return copies, sessions, summary
+
+
+def _read_replica_acknowledgements(path: Path) -> dict[str, str]:
+    """Load accepted outdated-replica warnings; ignore invalid data."""
+    from kp_sync.log import info
+
+    if not os.path.lexists(path):
+        return {}
+    try:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("not a regular file")
+        payload = json.loads(path.read_text())
+        stores = payload["stores"]
+        if payload.get("schema_version") != 1 or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in stores.items()
+        ):
+            raise ValueError("unsupported content")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        # Losing an acknowledgement only means asking again.
+        info(f"ignoring invalid replica acknowledgements: {exc}")
+        return {}
+    return dict(stores)
 
 
 def _copy_display(identity: str, config: Config, endpoints):

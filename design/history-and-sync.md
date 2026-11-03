@@ -57,7 +57,29 @@ Rules:
   publish immediately. An empty or outdated drive store is brought current
   even when cloud history is unchanged; identical stores incur no writes.
   Bases are verified and copied before each target's state is published,
-  with shared-state rechecks preserved. Drive replicas use more drive
+  with shared-state rechecks preserved. The first store in that order (the
+  cloud, or the first drive when the cloud is unreachable) is required:
+  its failure fails the run. Later drive stores are best-effort replicas
+  once the required store holds the published state (published now or
+  already current): a drive write, verification or pruning error is
+  logged as `ERROR:`, recorded as a `failed:` publication outcome (or
+  `published; pruning failed:` when its `state.json` was already
+  replaced), and the run continues and finishes normally. A failed drive is
+  left out of later checks in the same save and is retried by the next
+  run, since its history still differs. A detected concurrent change
+  (`BaselineChanged`) on any store still restarts the run.
+  A drive left with outdated history is a user decision, asked after the
+  run's local work (the hub and required store are committed; nothing is
+  rolled back): "continue without updating it?" through the normal UI
+  layer, outside the synchronization locks. Acceptance is kept in the
+  private runtime file `replica-acknowledgements.json` and suppresses the
+  question for that drive until its history is next published (or the
+  runtime directory is lost at logout). A refusal, timeout or headless
+  run (`none`, daemon polls) records a `drive-history:<identity>` pending
+  decision, so the daemon notifies and `kp-sync resolve` asks again; the
+  next run re-evaluates it and clears it when the drive publishes or is
+  absent. The sync result stays consistent: this warning does not block
+  launch, kp-access BEGIN or ejecting the drive. Drive replicas use more drive
   storage and local writes, not additional uploads to unchanged cloud
   history. Offline writes return to the cloud through normal reconciliation.
   Within a cloud store, previously downloaded `state.json` bytes (kept

@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from kp_sync.baseline import (
     BaselineChanged,
@@ -313,8 +314,21 @@ class BaselineTest(unittest.TestCase):
                 raise OSError("synthetic transfer failure")
 
         self.drive.before_put = fail_second_base
-        with self.assertRaisesRegex(OSError, "synthetic transfer failure"):
+        # The cloud already holds this state; the drive is best-effort.
+        with patch("kp_sync.baseline.error") as logged:
             manager.save(merged, self.work)
+        logged.assert_called_once()
+        self.assertEqual(
+            manager.publication_outcomes["drive:one"],
+            "failed: OSError: synthetic transfer failure",
+        )
+        self.assertEqual(
+            manager.publication_outcomes["cloud"], "already current"
+        )
+        self.assertEqual(
+            manager.replica_failures,
+            {"drive:one": "OSError: synthetic transfer failure"},
+        )
         self.assertFalse((self.drive.root / "state.json").exists())
         self.assertEqual(len(self.drive.events), 1)
         self.drive.before_put = None
@@ -326,6 +340,155 @@ class BaselineTest(unittest.TestCase):
         self.assertEqual(
             set(self.drive.bases()),
             {f"{sha}.kdbx" for sha in merged.versions},
+        )
+
+    def _newer_cloud_history(self):
+        state, base = self.seed(self.cloud)
+        self.seed(
+            self.cloud,
+            state=state,
+            parent=base,
+            payload=b"newer",
+            copy="hub:other",
+        )
+
+    def test_required_cloud_failure_still_fails_publication(self):
+        self._newer_cloud_history()
+        manager = BaselineManager(self.runtime, (self.cloud, self.drive))
+        merged = manager.load(self.work)
+        merged.record_copies(next(iter(merged.versions)), ["hub:this"], "t")
+
+        def fail_cloud_state(relative):
+            if relative == "state.json":
+                raise OSError("synthetic cloud failure")
+
+        self.cloud.before_put = fail_cloud_state
+        with self.assertRaisesRegex(OSError, "synthetic cloud failure"):
+            manager.save(merged, self.work)
+        self.assertNotIn("state.json", self.drive.events)
+
+    def test_drive_failure_continues_to_later_drives_after_cloud(self):
+        self._newer_cloud_history()
+        second = FakeStore(self.root / "drive2", name="drive:two", cloud=False)
+        manager = BaselineManager(
+            self.runtime, (self.cloud, self.drive, second)
+        )
+        merged = manager.load(self.work)
+        merged.record_copies(next(iter(merged.versions)), ["hub:this"], "t")
+
+        broken = []
+
+        def full(relative):
+            broken.append(relative)
+            raise OSError("synthetic full drive")
+
+        self.drive.before_put = full
+        original_fetch = self.drive.fetch
+
+        def unreadable(relative, destination, *, max_age=None):
+            # After its write failure the drive also stops reading.
+            if broken:
+                raise OSError("synthetic read failure")
+            return original_fetch(relative, destination, max_age=max_age)
+
+        self.drive.fetch = unreadable
+        with patch("kp_sync.baseline.error"):
+            manager.save(merged, self.work)
+        self.assertEqual(manager.publication_outcomes["cloud"], "published")
+        self.assertEqual(
+            manager.publication_outcomes["drive:two"], "published"
+        )
+        self.assertTrue(
+            manager.publication_outcomes["drive:one"].startswith("failed:")
+        )
+        self.assertEqual(
+            HistoryState.load(second.root / "state.json").to_dict(),
+            merged.to_dict(),
+        )
+
+    def test_failing_drive_checks_run_until_it_fails(self):
+        # Later drives still detect changes; a failed drive is skipped.
+        self._newer_cloud_history()
+        second = FakeStore(self.root / "drive2", name="drive:two", cloud=False)
+        manager = BaselineManager(
+            self.runtime, (self.cloud, self.drive, second)
+        )
+        merged = manager.load(self.work)
+        merged.record_copies(next(iter(merged.versions)), ["hub:this"], "t")
+        competing = HistoryState.from_dict(merged.to_dict())
+        competing.record_copies(next(iter(merged.versions)), ["hub:race"], "r")
+
+        def race(relative):
+            if relative.startswith("bases/"):
+                competing.save(self.cloud.root / "state.json")
+
+        second.before_put = race
+        with self.assertRaises(BaselineChanged):
+            manager.save(merged, self.work)
+        self.assertNotIn("state.json", second.events)
+        self.assertEqual(
+            manager.publication_outcomes["drive:two"],
+            "failed: shared history changed",
+        )
+
+    def test_only_reachable_drive_failure_fails_publication(self):
+        self.cloud.online = False
+        second = FakeStore(self.root / "drive2", name="drive:two", cloud=False)
+        manager = BaselineManager(
+            self.runtime, (self.cloud, self.drive, second)
+        )
+        merged = manager.load(self.work)
+        merged.commit("a" * 64, (), "test", ("hub:this",), size=1)
+        (self.runtime / "bases").mkdir(mode=0o700)
+        (self.runtime / "bases" / f"{'a' * 64}.kdbx").write_bytes(b"x")
+        with patch("kp_sync.baseline.inspect_kdbx") as inspected:
+            inspected.return_value.sha256 = "a" * 64
+
+            def full(relative):
+                raise OSError("synthetic full drive")
+
+            self.drive.before_put = full
+            with self.assertRaisesRegex(OSError, "synthetic full drive"):
+                manager.save(merged, self.work)
+            self.assertEqual(second.events, [])
+            # The first drive is current; later drives are best-effort.
+            self.drive.before_put = None
+            second.before_put = full
+            with patch("kp_sync.baseline.error"):
+                manager.save(merged, self.work)
+        self.assertEqual(
+            manager.publication_outcomes["drive:one"], "published"
+        )
+        self.assertTrue(
+            manager.publication_outcomes["drive:two"].startswith("failed:")
+        )
+
+    def test_drive_pruning_failure_after_state_is_reported_as_published(self):
+        initial, base = self.seed(self.drive)
+        state, tip = self.seed(
+            self.drive, parent=base, state=initial, payload=b"newer"
+        )
+        manager = BaselineManager(self.runtime, (self.cloud, self.drive))
+        merged = manager.load(self.work)
+        merged.prune()
+        merged.record_copies(tip, ["hub:this"], "t")
+        self.assertNotIn(base, merged.versions)
+
+        def fail_delete(name):
+            raise OSError("synthetic delete failure")
+
+        self.drive.delete_base = fail_delete
+        with patch("kp_sync.baseline.error"):
+            manager.save(merged, self.work)
+        self.assertEqual(
+            manager.publication_outcomes["drive:one"],
+            "published; pruning failed: OSError: synthetic delete failure",
+        )
+        # Its history is current, so no outdated-replica warning.
+        self.assertEqual(manager.replica_failures, {})
+        self.assertEqual(
+            HistoryState.load(self.drive.root / "state.json").to_dict(),
+            merged.to_dict(),
         )
 
     def test_prune_removes_only_unretained_hash_named_bases(self):
