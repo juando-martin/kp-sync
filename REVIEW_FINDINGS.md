@@ -43,8 +43,9 @@ from the checkout.
    endpoint opts in (e.g. `probe_is_content_hash = true`) because its
    probe prints a real content hash. Document that a custom probe must
    change whenever the content changes.
-5. **F11** (proposal recorded on 2026-11-03; do not implement yet): batch
-   per-run rclone transfers of history bases.
+5. **F11** (proposal and optional `rcd` design recorded on 2026-11-03;
+   do not implement yet): batch per-run rclone transfers of history
+   bases, then optionally a persistent `rcd` transport on rclone ≥ 1.61.
 
 ## Scope
 
@@ -146,10 +147,34 @@ Proposal: batch content-addressed base uploads, downloads and deletes of
 one run into one rclone call each (`copy`/`delete --files-from-raw`).
 Keep `state.json` and the database as separate in-place `copyto` writes:
 their order (bases before state) and the shared-state re-checks between
-them are safety rules. A persistent `rclone rcd` is faster per operation
-but adds a long-lived local server with full Drive access (auth,
-lifecycle, interaction with the F8 credentials lock); evaluate it
-separately if batching is not enough. Not considered further: the Drive
+them are safety rules. Batching comes first; it works on rclone 1.60.1.
+
+Optional fast transport (owner agreed the design on 2026-11-03; do not
+implement yet): a persistent `rclone rcd`, used only when available and
+plain rclone calls otherwise.
+
+- *Requirement.* `rcd` listens on a Unix socket only from rclone 1.61
+  (verified: 1.60.1 fails with `listen tcp: … unknown port` although its
+  man page documents it). The socket lives in the profile run dir (0700),
+  so access is limited to the user, as with the private config copy;
+  sockets bypass rclone's own authentication. No loopback TCP fallback.
+- *Selection.* Probe by starting `rcd` on the socket and checking that it
+  answers, not by parsing versions. Setting such as
+  `rclone_transport = "auto" | "cli"`; endpoints with custom
+  `download`/`upload`/`probe` commands always use them.
+- *Credentials (F8).* `rcd` reads its `--config` once, keeps credentials
+  in memory, rewrites (and recreates) the file on token refresh and has
+  no reload call. It therefore holds `rclone-credentials.lock` shared for
+  its whole lifetime: import and drain stop it first, take the lock
+  exclusive, then restart it if credentials remain. The daemon owns it
+  and stops it on drain and idle exit; other processes use its socket
+  when healthy and plain rclone (same shared lock) otherwise.
+- *To verify first.* `operations/copyfile` updates in place like
+  `copyto` (Drive revision history); `operations/list` can do the
+  filtered `--hash` listing in one call; per-operation timeouts and how a
+  half-done `rcd` operation maps onto the retry/restart rules.
+- *Expected gain.* Listing 1.1 → 0.27 s, each download 4 → 0.9 s after a
+  ~1 s warm-up; combines with batching. Not considered further: the Drive
 batch API directly (drops rclone), `librclone` (not packaged by Debian),
 `rclone mount` (cache consistency) and archiving the bases (changes the
 history layout).
