@@ -116,7 +116,8 @@ plain rclone calls otherwise.
   (verified: 1.60.1 fails with `listen tcp: … unknown port` although its
   man page documents it). The socket lives in the profile run dir (0700),
   so access is limited to the user, as with the private config copy;
-  sockets bypass rclone's own authentication. No loopback TCP fallback.
+  `rcd` then runs with `--rc-no-auth` (see below). No loopback TCP
+  fallback.
 - *Selection.* Probe by starting `rcd` on the socket and checking that it
   answers, not by parsing versions. Setting such as
   `rclone_transport = "auto" | "cli"`; endpoints with custom
@@ -128,15 +129,22 @@ plain rclone calls otherwise.
   exclusive, then restart it if credentials remain. The daemon owns it
   and stops it on drain and idle exit; other processes use its socket
   when healthy and plain rclone (same shared lock) otherwise.
-- *To verify first.* `operations/copyfile` updates in place like
-  `copyto` (Drive revision history); `operations/list` can do the
-  filtered `--hash` listing in one call; per-operation timeouts and how a
-  half-done `rcd` operation maps onto the retry/restart rules.
-- *Expected gain.* Listing 1.1 → 0.27 s, each download 4 → 0.9 s after a
-  ~1 s warm-up; combines with batching. Not considered further: the Drive
-batch API directly (drops rclone), `librclone` (not packaged by Debian),
-`rclone mount` (cache consistency) and archiving the bases (changes the
-history layout).
+- *Verified on `beta` with rclone 1.75.2 (2026-11-04,
+  `GoogleDrive:kp-tests`).* `rcd --rc-addr unix://…` works; the socket is
+  created 0775, so it must live in a 0700 directory. Contrary to the man
+  page, the socket does not bypass rc authentication for `operations/*`
+  (HTTP 403) unless `--rc-no-auth` is set, which is acceptable only on
+  such a private socket. One `operations/list` with `_filter` include
+  rules, `recurse` and `showHash` returns exactly kp-sync's per-run
+  listing (database, `state.json`, bases) with MD5, SHA-1 and SHA-256.
+  `operations/copyfile` uploads update the Drive file in place (same file
+  ID, like `copyto`, so revision history is kept). The socket is removed
+  when `rcd` stops. Still open: per-operation timeouts and mapping a
+  half-done `rcd` operation onto the retry/restart rules.
+- *Measured gain (rclone 1.75.2).* Filtered recursive listing 1.84 s
+  (CLI) → 1.09 s (`rcd`, after a 1.8 s first call); database download
+  2.70 s → 1.02 s; in-place upload via `rcd` 1.74 s. Listing gains less
+  than the earlier non-recursive 0.27 s because Drive lists each folder.
 
 ## Reviewed without findings
 
