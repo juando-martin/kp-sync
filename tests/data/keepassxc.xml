@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<KeePassFile>
+ <Meta>
+  <Generator>kp-sync compatibility fixture</Generator>
+  <DatabaseName>Compatibility</DatabaseName>
+  <DatabaseNameChanged>2024-01-01T00:00:00Z</DatabaseNameChanged>
+  <MasterKeyChanged>2024-01-01T00:00:00Z</MasterKeyChanged>
+  <RecycleBinEnabled>False</RecycleBinEnabled>
+  <HistoryMaxItems>10</HistoryMaxItems><HistoryMaxSize>6291456</HistoryMaxSize>
+  <CustomIcons><Icon><UUID>AAAAAAAAAAAAAAAAAAAAIQ==</UUID><Data>iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==</Data></Icon></CustomIcons>
+  <Binaries><Binary ID="0" Compressed="False">aGVsbG8gYXR0YWNobWVudA==</Binary></Binaries>
+  <CustomData><Item><Key>KPXC_BROWSER_fixture</Key><Value>synthetic-browser-key</Value></Item></CustomData>
+ </Meta>
+ <Root>
+  <Group>
+   <UUID>AAAAAAAAAAAAAAAAAAAAAQ==</UUID><Name>Root</Name>
+   <Times><LastModificationTime>2024-01-01T00:00:00Z</LastModificationTime><CreationTime>2024-01-01T00:00:00Z</CreationTime><LastAccessTime>2024-01-01T00:00:00Z</LastAccessTime><ExpiryTime>2030-01-01T00:00:00Z</ExpiryTime><Expires>False</Expires><UsageCount>0</UsageCount><LocationChanged>2024-01-01T00:00:00Z</LocationChanged></Times>
+   <CustomData><Item><Key>group-key</Key><Value>group-value</Value></Item></CustomData>
+   <Entry>
+    <UUID>AAAAAAAAAAAAAAAAAAAAEQ==</UUID><IconID>0</IconID><CustomIconUUID>AAAAAAAAAAAAAAAAAAAAIQ==</CustomIconUUID><Tags>work;ssh</Tags>
+    <Times><LastModificationTime>2024-02-01T00:00:00Z</LastModificationTime><CreationTime>2024-01-01T00:00:00Z</CreationTime><LastAccessTime>2024-03-01T00:00:00Z</LastAccessTime><ExpiryTime>2030-01-01T00:00:00Z</ExpiryTime><Expires>True</Expires><UsageCount>7</UsageCount><LocationChanged>2024-01-01T00:00:00Z</LocationChanged></Times>
+    <String><Key>Title</Key><Value>Example</Value></String>
+    <String><Key>UserName</Key><Value>synthetic-user</Value></String>
+    <String><Key>Password</Key><Value ProtectInMemory="True">synthetic-password</Value></String>
+    <String><Key>PIN</Key><Value ProtectInMemory="True">1234</Value></String>
+    <Binary><Key>note.txt</Key><Value Ref="0"/></Binary>
+    <AutoType><Enabled>True</Enabled><DataTransferObfuscation>0</DataTransferObfuscation><DefaultSequence>{USERNAME}{TAB}{PASSWORD}{ENTER}</DefaultSequence></AutoType>
+    <CustomData><Item><Key>entry-key</Key><Value>entry-value</Value></Item></CustomData>
+    <History><Entry>
+     <UUID>AAAAAAAAAAAAAAAAAAAAEQ==</UUID><IconID>0</IconID>
+     <Times><LastModificationTime>2024-01-01T00:00:00Z</LastModificationTime><CreationTime>2024-01-01T00:00:00Z</CreationTime><LastAccessTime>2024-01-01T00:00:00Z</LastAccessTime><ExpiryTime>2030-01-01T00:00:00Z</ExpiryTime><Expires>False</Expires><UsageCount>0</UsageCount><LocationChanged>2024-01-01T00:00:00Z</LocationChanged></Times>
+     <String><Key>Title</Key><Value>Example</Value></String><String><Key>Password</Key><Value ProtectInMemory="True">synthetic-old-password</Value></String>
+    </Entry></History>
+   </Entry>
+  </Group>
+  <DeletedObjects><DeletedObject><UUID>AAAAAAAAAAAAAAAAAAAA/w==</UUID><DeletionTime>2024-01-10T00:00:00Z</DeletionTime></DeletedObject></DeletedObjects>
+ </Root>
+</KeePassFile>

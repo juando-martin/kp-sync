@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Manually use this wrapper for ~/bin/keepass; default-profile commands:
+#   keepass [database.kdbx]
+#   keepass --legacy [database.kdbx]
+# For a named profile, use: kp-sync --profile NAME run --app keepassxc
+if [[ "${1:-}" == "--legacy" ]]; then
+  shift
+  exec "$HOME/.venvs/tools/bin/kp-sync" run --app keepass-legacy -- "$@"
+fi
+exec "$HOME/.venvs/tools/bin/kp-sync" run --raise-existing --app keepassxc -- "$@"

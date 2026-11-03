@@ -1,0 +1,26 @@
+# Proposed main-laptop layout; not installed automatically.
+# Adapt the runtime UID and verify the existing key-file path before use.
+# Keep KeePassXC and the old sync scripts stopped during migration.
+hub = "/run/user/1000/kp/pass.kdbx"
+hub_persistent = false
+key_file = "~/data/Personal/kp/pass.keyx"
+
+[[endpoints]]
+name = "cloud"
+type = "rclone"
+remote = "GoogleDrive:kp"
+rclone_config = "/run/user/1000/rclone/rclone.conf"
+
+[[endpoints]]
+name = "pendrive"
+type = "file"
+source = "runtime"
+
+[drives]
+directory = "kp"
+
+# History remains <drive>/kp-sync; on the cloud it is relative to the
+# configured remote root: GoogleDrive:kp/kp-sync. No history is moved.
+[baseline]
+stores = ["cloud", "pendrive"]
+dir = "kp-sync"

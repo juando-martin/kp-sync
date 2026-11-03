@@ -1,0 +1,19 @@
+Read the following
+
+~/workspace/bin-scripts/
+~/workspace/bin-scripts/kp-ssh-access.sh
+~/workspace/kp-access/README.md
+
+Only for database merging:
+~/workspace/keepass-attr/README.md
+
+The general problem is that there is a keepass database used mostly with keepassxc that is made available through a pendrive installed in a laptop. It is also synchronized with a cloud service. From there it is made available to various systems in different ways.
+
+I would like to have an integrated solution, although I am okay with installing scripts in the different involved systems.
+
+Modifications to the database are few but can happen. It is possible for instance to have a modification happen in a sshfs mounted filesystem and also in the local laptop. I would like for the system to check if there has been modifications only in one, then "promote" that one both to the cloud and the pendrive. If there are in several places then run a synchroniztion procedure (possibly asking for the password and the key file) that merges the entries, The central place for manupulating the database should be the laptop. The solution should be configurable regarding where the different instances of the database are.
+
+Ask any questions you need to further understand the problematic and requird functionality.
+
+At this point the goal is to design a solution. Implementation will be a later phase.
+

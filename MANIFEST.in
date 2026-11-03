@@ -1,0 +1,5 @@
+include .pycodestyle DESIGN.md PLAN.md NEXT_STEPS.md
+recursive-include design *.md
+recursive-include docs *.rst *.py *.css
+recursive-include tools *.py
+prune docs/_build
