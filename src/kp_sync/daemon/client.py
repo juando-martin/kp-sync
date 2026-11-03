@@ -7,6 +7,7 @@ import stat
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from kp_sync.credentials import COPY_SLOT_RE, CredentialProvider
 from kp_sync.daemon.protocol import (
@@ -39,21 +40,35 @@ class Client:
     """
 
     def __init__(
-        self, config, *, starter=None, clock=time.monotonic, sleep=time.sleep
+        self,
+        config,
+        *,
+        directory=None,
+        starter=None,
+        clock=time.monotonic,
+        sleep=time.sleep,
     ):
         """Create a client bound to the configured profile.
 
         Args:
             config: Loaded profile configuration.
+            directory: Runtime directory holding ``control.sock``; by
+                default the profile's directory under the process
+                ``XDG_RUNTIME_DIR``.
             starter: Optional daemon activation callback.
             clock: Monotonic clock used for connection deadlines.
             sleep: Injectable delay while waiting for socket readiness.
 
         Notes:
-            Ensures the profile's private runtime directory.
+            Ensures the profile's private runtime directory when
+            ``directory`` is omitted.
         """
         self.config = config
-        self.directory = ensure_run_dir(config.profile)
+        self.directory = (
+            Path(directory)
+            if directory is not None
+            else ensure_run_dir(config.profile)
+        )
         self.path = self.directory / "control.sock"
         self.starter = starter or self._start
         self.clock = clock

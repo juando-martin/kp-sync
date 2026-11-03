@@ -228,14 +228,22 @@ class StatusTest(unittest.TestCase):
             }
             output = io.StringIO()
             with (
+                patch.dict(os.environ, {"XDG_RUNTIME_DIR": name}),
                 patch("kp_sync.cli.load_config", return_value=config),
                 patch("kp_sync.cli.ensure_run_dir", return_value=run),
                 patch(
-                    "kp_sync.daemon.client.Client.request", return_value=reply
+                    "kp_sync.daemon.client.ensure_run_dir",
+                    side_effect=AssertionError("client re-derived its path"),
                 ),
+                patch(
+                    "kp_sync.daemon.client.Client.request",
+                    autospec=True,
+                    return_value=reply,
+                ) as request,
                 contextlib.redirect_stdout(output),
             ):
                 self.assertEqual(main(["status"]), 10)
+            self.assertEqual(request.call_args.args[0].directory, run)
             self.assertIn("lease drive:serial:uuid: drive", output.getvalue())
 
     def test_stale_socket_uses_cached_status_without_starting_daemon(self):
@@ -252,8 +260,13 @@ class StatusTest(unittest.TestCase):
             listener.close()
             atomic_write(run / "last-sync.json", '{"action":"unchanged"}')
             with (
+                patch.dict(os.environ, {"XDG_RUNTIME_DIR": name}),
                 patch("kp_sync.cli.load_config", return_value=config),
                 patch("kp_sync.cli.ensure_run_dir", return_value=run),
+                patch(
+                    "kp_sync.daemon.client.ensure_run_dir",
+                    side_effect=AssertionError("client re-derived its path"),
+                ),
                 patch(
                     "kp_sync.daemon.client.Client._start",
                     side_effect=AssertionError("no activation"),
