@@ -25,10 +25,11 @@ beyond unit tests needs the `kp-test` profile; installing kp-sync or
 units on `beta` needs owner approval, otherwise use `--no-daemon` runs
 from the checkout.
 
-1. **F4**, after an owner decision. Recommended: upload missing bases from
-   the fresh listing; when a base exists nowhere, keep refusing to
-   publish, name the version, and add an explicit repair command rather
-   than dropping versions automatically (they may be merge ancestors).
+1. **F4** (owner chose the recommended option on 2026-11-03; start only
+   when asked): upload missing bases from the fresh listing; when a base
+   exists nowhere, keep refusing to publish, name the version, and add an
+   explicit repair command rather than dropping versions automatically
+   (they may be merge ancestors).
 2. **F7 and F5**, after owner decisions. Recommended: move both laptops to
    Black 26 and reformat in a separate commit (`alpha` has Black 25.12,
    which is clean today); widen the Sphinx pin only if the strict build
