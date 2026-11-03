@@ -1432,11 +1432,12 @@ class SyncEngine:
                     fingerprint = fresh.fingerprint
                     state.copies[identity] = replace(
                         state.copies[identity],
-                        remote_hashes={
-                            "probe": fingerprint.token
-                            or fingerprint.sha256
-                            or ""
-                        },
+                        remote_hashes=(
+                            {"probe": fingerprint.token}
+                            if fingerprint.token_is_content
+                            and fingerprint.token
+                            else {}
+                        ),
                     )
             state.save(state_path)
             self._publish(state, temporary, observations)
@@ -1526,8 +1527,15 @@ class SyncEngine:
                 and record.sha256 == record.version
                 and (
                     fingerprint.sha256 == record.version
-                    or record.remote_hashes.get("probe")
-                    == (fingerprint.token or fingerprint.sha256)
+                    or (
+                        # Only a token covering a content hash may
+                        # stand for the bytes; size and mtime can
+                        # survive edits.
+                        fingerprint.token_is_content
+                        and fingerprint.token is not None
+                        and record.remote_hashes.get("probe")
+                        == fingerprint.token
+                    )
                 )
             ):
                 base = self.run_directory / "bases" / f"{record.version}.kdbx"
@@ -4288,6 +4296,7 @@ def _command_endpoint(item: EndpointConfig) -> CommandEndpoint:
         item.fetch,
         item.store,
         probe=item.probe,
+        probe_is_content_hash=item.probe_is_content_hash,
         identity=item.identity or f"command:{item.name}",
         readonly=item.readonly,
         optional=item.optional,

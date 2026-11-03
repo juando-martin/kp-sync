@@ -25,6 +25,7 @@ class EndpointMissing(EndpointUnavailable):
 
 
 _GLOB_SPECIAL = set("*?[]{}\\")
+_CONTENT_HASHES = frozenset({"sha256", "sha1", "md5"})
 
 
 def _hash_pairs(hashes: dict[str, str]) -> tuple[tuple[str, str], ...]:
@@ -499,8 +500,17 @@ class RcloneEndpoint(Endpoint):
                 token_data, sort_keys=True, separators=(",", ":")
             ).encode()
         ).hexdigest()
+        pairs = _hash_pairs(self.hashes)
         return EndpointFingerprint(
-            sha256, item.get("Size"), token, _hash_pairs(self.hashes)
+            sha256,
+            item.get("Size"),
+            token,
+            pairs,
+            # Without a listed content hash the token is only size and
+            # modification time, which a same-size rewrite can keep.
+            token_is_content=any(
+                algorithm in _CONTENT_HASHES for algorithm, _ in pairs
+            ),
         )
 
     def forget_observations(self) -> None:

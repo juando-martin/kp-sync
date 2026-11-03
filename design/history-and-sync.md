@@ -276,7 +276,14 @@ that host too.
    stores and the runtime cache (merged per record, see "Baseline store").
 2. **Probe**: for each endpoint, `probe` if supported; if the fingerprint
    equals the one recorded for a known version, its state follows without
-   fetching.
+   fetching. This shortcut needs a fingerprint that changes whenever the
+   content changes: a SHA-256 equal to the version, or a recorded token
+   that includes a content hash (SHA-256, SHA-1 or MD5). An `rclone`
+   remote that lists none of them (only size and modification time) and a
+   `command` endpoint are downloaded on every run, unless the `command`
+   endpoint sets `probe_is_content_hash = true` because its `probe`
+   prints a real content hash. Only such tokens are recorded; tokens
+   recorded by earlier versions without a content hash are ignored.
    An `rclone` endpoint observes its database and the `kp-sync/` history
    with one filtered `lsjson --hash` listing (one rclone process; each costs
    1–2 s). A listed remote checksum (MD5 on Google Drive) that matches a

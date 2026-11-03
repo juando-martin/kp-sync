@@ -3,6 +3,7 @@ import fnmatch
 import hashlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from dataclasses import replace
@@ -16,6 +17,7 @@ from kp_sync.baseline import CloudStore, DriveStore
 from kp_sync.baseline import BaselineManager
 from kp_sync.config import load_config
 from kp_sync.drives import DriveEndpoint
+from kp_sync.endpoints.command import CommandEndpoint
 from kp_sync.endpoints.rclone import RcloneEndpoint
 from kp_sync.engine import SyncEngine
 from kp_sync.kdbx import inspect_kdbx
@@ -29,6 +31,8 @@ class FakeRclone:
         self.root = root
         self.online = True
         self.hashes = True
+        # Google Drive lists only MD5 before rclone 1.61.
+        self.md5_only = False
         self.calls = []
 
     def path(self, value):
@@ -98,6 +102,7 @@ class FakeRclone:
                                     {"SHA-256": inspect_kdbx(item).sha256}
                                     if item.is_file()
                                     and item.suffix == ".kdbx"
+                                    and not self.md5_only
                                     else (
                                         {
                                             "MD5": hashlib.md5(
@@ -190,7 +195,7 @@ class CloudSyncTest(unittest.TestCase):
         self.mount.mkdir()
         (self.mount / "pass.kdbx").write_bytes(self.initial)
 
-    def engine(self, host, *, drive=False, ui=None):
+    def engine(self, host, *, drive=False, ui=None, extra=()):
         home = self.root / host
         home.mkdir(exist_ok=True)
         runtime = home / "runtime"
@@ -206,7 +211,7 @@ class CloudSyncTest(unittest.TestCase):
             ui=config.ui | {"ask_first": False},
         )
         cloud = RcloneEndpoint("cloud", "fake", runner=self.runner)
-        endpoints = [cloud]
+        endpoints = [cloud, *extra]
         stores = [CloudStore(cloud, "kp-sync")]
         if drive:
             pendrive = DriveEndpoint(
@@ -368,6 +373,127 @@ class CloudSyncTest(unittest.TestCase):
         # the checksum-validated runtime cache of a new engine.
         self.assertEqual(len(self.runner.calls), 1, self.runner.calls)
         self.assertEqual(self.runner.calls[0][1], "lsjson")
+
+    def test_listed_md5_alone_identifies_a_known_cloud_copy(self):
+        self.runner.md5_only = True
+        self.engine("left").sync()
+        engine = self.engine("left")
+        self.runner.calls.clear()
+        self.assertEqual(engine.sync().action, "unchanged")
+        self.assertEqual(
+            [call[1] for call in self.runner.calls],
+            ["lsjson"],
+            self.runner.calls,
+        )
+
+    _legacy_token = False
+
+    def test_stored_hashless_token_from_older_versions_is_not_trusted(self):
+        self._legacy_token = True
+        self.test_hashless_rewrite_keeping_size_and_mtime_is_downloaded()
+
+    def test_hashless_rewrite_keeping_size_and_mtime_is_downloaded(self):
+        # Size and mtime survive a same-size rewrite on some backends.
+        self.runner.hashes = False
+        fake = self.runner
+
+        def frozen(argv, **kwargs):
+            result = fake(argv, **kwargs)
+            if argv[1] == "lsjson" and result.stdout:
+                items = json.loads(result.stdout)
+                for item in items:
+                    if item.get("Path") == "pass.kdbx":
+                        item["Size"], item["ModTime"] = 4096, "frozen"
+                result.stdout = json.dumps(items)
+            return result
+
+        self.runner = frozen
+        self.assertEqual(self.engine("left").sync().action, "committed")
+        shared = HistoryState.load(self.remote / "kp-sync" / "state.json")
+        self.assertEqual(shared.copies["cloud:fake"].remote_hashes, {})
+        if self._legacy_token:
+            # Earlier versions stored size/mtime tokens unconditionally.
+            token = RcloneEndpoint("cloud", "fake", runner=frozen).probe()
+            run = self.root / "left/runtime/kp-sync"
+            for path in (
+                self.remote / "kp-sync/state.json",
+                run / "state.json",
+                *(run / "history-cache").glob("*.json"),
+            ):
+                state = HistoryState.load(path)
+                state.copies["cloud:fake"] = replace(
+                    state.copies["cloud:fake"],
+                    remote_hashes={"probe": token.token},
+                )
+                state.save(path)
+        self.edit(self.cloud_db, username="phone")
+        engine = self.engine("left")
+        self.assertEqual(engine.sync().action, "committed")
+        database = PyKeePass(
+            engine.config.hub, password="test-password", keyfile=self.key
+        )
+        self.assertEqual(database.entries[0].username, "phone")
+
+    def command_endpoint(self, *, content_hash, name="command"):
+        copy = self.root / f"{name}.kdbx"
+        if not copy.exists():
+            shutil.copyfile(self.cloud_db, copy)
+        log = self.root / f"{name}-fetches.log"
+        fetch = (
+            sys.executable,
+            "-c",
+            "import shutil,sys; shutil.copyfile(sys.argv[1], sys.argv[2]);"
+            "open(sys.argv[3], 'a').write('fetch\\n')",
+            str(copy),
+            "{file}",
+            str(log),
+        )
+        store = (
+            sys.executable,
+            "-c",
+            "import shutil,sys; shutil.copyfile(sys.argv[1], sys.argv[2])",
+            "{file}",
+            str(copy),
+        )
+        # A deliberately constant token: only the flag decides trust.
+        probe = (sys.executable, "-c", "print('constant')")
+        endpoint = CommandEndpoint(
+            name,
+            fetch,
+            store,
+            probe=probe,
+            probe_is_content_hash=content_hash,
+        )
+        return endpoint, copy, log
+
+    def check_command_fetches(self, *, content_hash):
+        endpoint, copy, log = self.command_endpoint(content_hash=content_hash)
+        self.assertEqual(
+            self.engine("left", extra=(endpoint,)).sync().action, "committed"
+        )
+        log.unlink()
+        engine = self.engine("left", extra=(endpoint,))
+        self.assertEqual(engine.sync().action, "unchanged")
+        return log.exists()
+
+    def test_undeclared_command_probe_token_downloads_every_run(self):
+        self.assertTrue(self.check_command_fetches(content_hash=False))
+
+    def test_declared_content_hash_probe_skips_the_download(self):
+        self.assertFalse(self.check_command_fetches(content_hash=True))
+
+    def test_undeclared_command_probe_does_not_hide_an_edit(self):
+        endpoint, copy, log = self.command_endpoint(content_hash=False)
+        self.assertEqual(
+            self.engine("left", extra=(endpoint,)).sync().action, "committed"
+        )
+        self.edit(copy, username="command-edit")
+        engine = self.engine("left", extra=(endpoint,))
+        self.assertEqual(engine.sync().action, "committed")
+        database = PyKeePass(
+            self.cloud_db, password="test-password", keyfile=self.key
+        )
+        self.assertEqual(database.entries[0].username, "command-edit")
 
     def test_hub_edit_uploads_without_downloading_cloud_copies_again(self):
         engine = self.engine("left")

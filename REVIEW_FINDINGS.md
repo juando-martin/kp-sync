@@ -21,6 +21,7 @@ branch with tests, committed locally and pushed only when work moves to
 `alpha`:
 
 F4, F6, F7, F8, F9 and F10 are fixed on `main` (unreleased, not pushed);
+F5 is fixed on branch `f5-probe-content-hash` (not merged);
 upgrading Black in `alpha`'s tools environment (F7) is a package install
 and needs its own approval there. Acceptance beyond unit tests needs the
 `kp-test` profile; installing kp-sync or units on `beta` needs owner
@@ -29,14 +30,8 @@ approval, otherwise use `--no-daemon` runs from the checkout.
 Remaining, approved on 2026-11-04 for an unattended run (see "Unattended
 run" in NEXT_STEPS.md), in this order:
 
-1. **F5** (option 2): take the probe shortcut only when the token
-   includes a content hash, where SHA-256, SHA-1 and MD5 all count;
-   other rclone remotes and `command` endpoints download every run unless
-   an endpoint sets `probe_is_content_hash = true` (default off) because
-   its probe prints a real content hash. Document that a custom probe must
-   change whenever the content changes. The owner confirmed `alpha` has no
-   `command` endpoints; its cloud is Google Drive (hashes listed), so
-   production behaviour is unchanged.
+1. **F5**: done on `f5-probe-content-hash` (see
+   `design/history-and-sync.md`, "Sync algorithm" step 2).
 2. **F11, part 1**, own branch: batch each run's base uploads, downloads
    and deletes into one rclone call each (`copy`/`delete
    --files-from-raw`), keeping `state.json` and the database as separate
@@ -70,26 +65,6 @@ the UI modules.
 F1–F3 (test isolation: real daemon socket, checkout-location and umask
 dependence, KeePassXC 2.7 `import`) were fixed on `fix-test-isolation`;
 the full suite (443 tests) then passed on `beta`.
-
-## Change detection
-
-### F5. Size and modification time are trusted as content identity (plausible)
-
-`_observe` (`src/kp_sync/engine.py:1489-1513`) skips the download and
-treats a copy as its recorded version when the probe token equals the
-stored `remote_hashes["probe"]`. That value is stored unconditionally
-(`:1405`). For rclone it hashes `{hashes, size, mtime}`. Google Drive
-includes MD5, so it is safe. A hashless remote reduces it to size and
-modification time, and a `command` endpoint's `probe` can return anything;
-`design/architecture.md:80` explicitly allows "hash or size+mtime".
-
-If such a copy is rewritten without its token changing (same size; same
-mtime within the backend's precision), the engine treats it as the old
-version. A later promotion then backs up the cached base instead of the
-real file and overwrites the edit. This conflicts with the REVIEW lesson
-that timestamps alone do not establish content identity. Fix: take the
-shortcut only when the token includes a content hash, and document that a
-command `probe` must change whenever content changes.
 
 ## Efficiency
 

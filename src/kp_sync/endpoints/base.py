@@ -53,6 +53,10 @@ class EndpointFingerprint:
         size: Observed byte count, when available.
         token: Opaque metadata token for detecting changes.
         hashes: Server-provided hashes as sorted algorithm/value pairs.
+        token_is_content: Whether ``token`` changes whenever the
+            content changes (it includes a SHA-256, SHA-1 or MD5 content
+            hash). Only such a token may identify a known version
+            without downloading the copy.
     """
 
     sha256: str | None
@@ -60,6 +64,8 @@ class EndpointFingerprint:
     token: str | None = None
     # Server-side content hashes, as sorted algorithm/digest pairs.
     hashes: tuple[tuple[str, str], ...] = ()
+    # Size and modification time alone never identify content.
+    token_is_content: bool = False
 
     def content_hashes(self) -> dict[str, str]:
         """Return supported hashes, including the SHA-256 field."""

@@ -78,7 +78,10 @@ Status: design only. Implementation is a later phase.
   `readonly`, `identity`); the number and kind of endpoints is entirely up to
   the configuration, from zero (hub only) to many. `probe` returns a cheap
   fingerprint (hash or size+mtime) without downloading, when the type allows
-  it. Endpoint types:
+  it. Only a fingerprint that includes a content hash (SHA-256, SHA-1 or
+  MD5) may identify a known version without a download; size and
+  modification time alone can survive a same-size rewrite, so such copies
+  are downloaded every run (see "Sync algorithm", step 2). Endpoint types:
   - `file`: a path, optionally resolved at runtime. The pendrive is a `file`
     endpoint with `source = "runtime"`: each attached drive is a separate
     instance, created by `kp-sync attach` (or `up`) with its mount point

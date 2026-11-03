@@ -98,6 +98,7 @@ _ENDPOINT_KEYS = {
     "download",
     "upload",
     "probe",
+    "probe_is_content_hash",
     "fetch",
     "store",
 }
@@ -129,6 +130,7 @@ class EndpointConfig:
     download: tuple[str, ...] | None = None
     upload: tuple[str, ...] | None = None
     probe: tuple[str, ...] | None = None
+    probe_is_content_hash: bool = False
     fetch: tuple[str, ...] | None = None
     store: tuple[str, ...] | None = None
 
@@ -271,6 +273,7 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
             "optional": bool,
             "timeout": float,
             "foreign_writers": bool,
+            "probe_is_content_hash": bool,
             "source": str,
             "identity": str,
             "remote": str,
@@ -299,7 +302,7 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
     }
     type_keys = {
         "file": {"path", "source"},
-        "command": {"fetch", "store", "probe"},
+        "command": {"fetch", "store", "probe", "probe_is_content_hash"},
         "rclone": {"remote", "rclone_config", "download", "upload", "probe"},
     }
     invalid = set(value) - common_keys - type_keys[endpoint_type]
@@ -341,6 +344,10 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
         if not any("{file}" in arg for arg in store):
             raise ConfigError(
                 f"endpoints[{index}].store must contain a {{file}} placeholder"
+            )
+        if value.get("probe_is_content_hash") and "probe" not in value:
+            raise ConfigError(
+                f"endpoints[{index}].probe_is_content_hash requires a probe"
             )
     elif endpoint_type == "rclone":
         if not isinstance(value.get("remote"), str) or not value["remote"]:
@@ -390,6 +397,7 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
             if "probe" in value
             else None
         ),
+        probe_is_content_hash=value.get("probe_is_content_hash", False),
         fetch=(
             _command(value["fetch"], f"endpoints[{index}].fetch")
             if endpoint_type == "command"

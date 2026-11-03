@@ -256,8 +256,18 @@ class RcloneEndpointTest(unittest.TestCase):
         self.assertIsNone(first.sha256)
         self.assertEqual(self.endpoint.hashes, {"md5": "abc"})
         self.assertEqual(first, self.endpoint.probe())
+        self.assertTrue(first.token_is_content)
         self.runner.objects[0]["ModTime"] = "later"
         self.assertNotEqual(first.token, self.endpoint.probe().token)
+        for hashes in ({}, {"quickxor": "abc"}, {"md5": ""}):
+            with self.subTest(hashes=hashes):
+                self.runner.objects[0]["Hashes"] = hashes
+                self.assertFalse(self.endpoint.probe().token_is_content)
+        for name in ("MD5", "sha1", "SHA-256"):
+            with self.subTest(name=name):
+                digest = "a" * (64 if "256" in name else 32)
+                self.runner.objects[0]["Hashes"] = {name: digest}
+                self.assertTrue(self.endpoint.probe().token_is_content)
         digest = hashlib.sha256(b"payload").hexdigest()
         self.runner.objects[0]["Hashes"] = {
             "SHA256": digest.upper(),

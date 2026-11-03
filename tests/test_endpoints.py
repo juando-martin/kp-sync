@@ -72,6 +72,15 @@ class EndpointTest(unittest.TestCase):
                 remote_file.read_text(encoding="utf-8"), "payload"
             )
             self.assertEqual(endpoint.probe().token, str(len("payload")))
+            self.assertFalse(endpoint.probe().token_is_content)
+            declared = CommandEndpoint(
+                "cmd", fetch, store, probe=probe, probe_is_content_hash=True
+            )
+            self.assertTrue(declared.probe().token_is_content)
+            with self.assertRaises(ValueError):
+                CommandEndpoint(
+                    "cmd", fetch, store, probe_is_content_hash=True
+                )
 
     def test_command_failures_are_reported(self) -> None:
         endpoint = CommandEndpoint(

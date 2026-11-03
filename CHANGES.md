@@ -7,6 +7,13 @@ hold the details; design decisions live in the `design/` chapters.
 
 ### Fixed
 
+- A copy is no longer taken as unchanged just because its size and
+  modification time are unchanged. kp-sync skips downloading a copy only
+  when its listing or probe includes a content hash (SHA-256, SHA-1 or
+  MD5, as Google Drive provides); other rclone remotes and `command`
+  endpoints are downloaded on every sync. A `command` endpoint whose
+  `probe` prints a real content hash can set the new
+  `probe_is_content_hash = true` to keep the shortcut.
 - A pendrive whose history cannot be updated (full, read-only remount,
   I/O error) no longer fails every sync while it is attached. Once the
   cloud (or the first drive when offline) holds the new history, the
