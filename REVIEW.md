@@ -72,5 +72,6 @@ backups; they remain tied to recovery markers in runtime storage.
 `HistoryMaxItems=0` and `HistoryMaxSize=0` mean no entry history, matching
 KeePass semantics.
 
-Unverified concerns and remaining acceptance gaps belong in PLAN, not in
-a list of supposedly current defects or resolved historical findings.
+Remaining acceptance gaps belong in PLAN. Open code-review findings live in
+[REVIEW_FINDINGS.md](REVIEW_FINDINGS.md) until fixed or rejected; keep this
+file free of current defects and resolved historical findings.

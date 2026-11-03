@@ -8,7 +8,7 @@
   integration acceptance with test-only databases and endpoints, including
   SSH/sshfs entry edits using `keepassxc-cli` without GUI interaction.
   Operational paths and credential handling are documented in
-  `.github/copilot-instructions.md` and `NEXT_STEPS.md`. Passwords are supplied
+  `CLAUDE.md` and `NEXT_STEPS.md`. Passwords are supplied
   through stdin, never argv/environment or the shared production keyring.
   This does not change the isolated, fake-backed unit-test policy or authorize
   production access and service restarts.
