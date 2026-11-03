@@ -604,7 +604,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from kp_sync.daemon.client import Client, DaemonUnavailable
 
                 try:
-                    # Query the socket just checked, not a re-derived path.
+                    # Query the socket checked above, not a new path.
                     result_dict = Client(
                         config, directory=run_directory
                     ).request("status", activate=False)
