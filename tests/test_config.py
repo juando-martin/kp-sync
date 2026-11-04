@@ -170,6 +170,80 @@ class ConfigTest(unittest.TestCase):
                     environ={"HOME": temp_dir, "XDG_RUNTIME_DIR": temp_dir},
                 )
 
+    def test_probe_is_content_hash_is_command_only_and_needs_a_probe(
+        self,
+    ) -> None:
+        command = (
+            '[[endpoints]]\nname = "remote"\ntype = "command"\n'
+            'fetch = ["get", "{file}"]\nstore = ["put", "{file}"]\n'
+        )
+        cases = (
+            (command, False, None),
+            (
+                command + 'probe = ["stat"]\nprobe_is_content_hash = true\n',
+                True,
+                None,
+            ),
+            (command + "probe_is_content_hash = true\n", None, "requires"),
+            (
+                command + 'probe = ["stat"]\nprobe_is_content_hash = "yes"\n',
+                None,
+                "probe_is_content_hash",
+            ),
+            (
+                '[[endpoints]]\nname = "cloud"\ntype = "rclone"\n'
+                'remote = "gd"\nprobe_is_content_hash = true\n',
+                None,
+                "invalid key",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.toml"
+            environ = {"HOME": temp_dir, "XDG_RUNTIME_DIR": temp_dir}
+            for text, expected, error in cases:
+                with self.subTest(text=text):
+                    config_path.write_text(text, encoding="utf-8")
+                    if error is not None:
+                        with self.assertRaisesRegex(ConfigError, error):
+                            load_config(config_path, environ=environ)
+                        continue
+                    config = load_config(config_path, environ=environ)
+                    self.assertIs(
+                        config.endpoints[0].probe_is_content_hash, expected
+                    )
+
+    def test_rclone_transport_defaults_to_commands(self) -> None:
+        rclone = (
+            '[[endpoints]]\nname = "cloud"\ntype = "rclone"\nremote = "gd"\n'
+        )
+        cases = (
+            (rclone, "cli", None),
+            (rclone + 'rclone_transport = "auto"\n', "auto", None),
+            (rclone + 'rclone_transport = "cli"\n', "cli", None),
+            (rclone + 'rclone_transport = "rcd"\n', None, "cli or auto"),
+            (rclone + "rclone_transport = true\n", None, "rclone_transport"),
+            (
+                '[[endpoints]]\nname = "f"\ntype = "file"\npath = "/x"\n'
+                'rclone_transport = "auto"\n',
+                None,
+                "invalid key",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.toml"
+            environ = {"HOME": temp_dir, "XDG_RUNTIME_DIR": temp_dir}
+            for text, expected, error in cases:
+                with self.subTest(text=text):
+                    config_path.write_text(text, encoding="utf-8")
+                    if error is not None:
+                        with self.assertRaisesRegex(ConfigError, error):
+                            load_config(config_path, environ=environ)
+                        continue
+                    config = load_config(config_path, environ=environ)
+                    self.assertEqual(
+                        config.endpoints[0].rclone_transport, expected
+                    )
+
     def test_runtime_drive_endpoint_does_not_need_a_static_identity(
         self,
     ) -> None:

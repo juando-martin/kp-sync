@@ -50,6 +50,10 @@ Module reference
 .. automodule:: kp_sync.rclone_credentials
    :members:
 
+.. automodule:: kp_sync.rclone_rcd
+   :members: RcloneDaemon, RcdError, RcdTimeout, RcdUnreachable, translate,
+      socket_path
+
 .. automodule:: kp_sync.drive_sync
    :members:
 

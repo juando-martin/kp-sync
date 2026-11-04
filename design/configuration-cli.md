@@ -17,12 +17,23 @@ Searched at `~/.config/kp-sync/config.toml` (overridable with `--config` or
   endpoint; `remote`, `rclone_config` (the provider-owned file, only read; kp-sync
   passes rclone its own private copy), `download`, `upload`,
   `probe` for `rclone`, whose availability is the `probe` itself run with
-  `timeout`, not a ping that may be blocked; `fetch`, `store`, `probe` for
-  `command`), and the common `enabled`, `readonly`, `optional`,
+  `timeout`, not a ping that may be blocked; `fetch`, `store`, `probe` and
+  `probe_is_content_hash` for `command`), and the common `enabled`, `readonly`, `optional`,
   `on_unavailable`, `timeout`, `foreign_writers` (default true for
   `rclone` and for read-write sessions, false otherwise: other programs
   may write this copy, so its changes get the "Foreign changes" check). Commands are argument lists with
   `{file}` / `{remote}` placeholders, never shell strings.
+  `probe_is_content_hash` (default false, requires `probe`) declares
+  that the `command` probe prints a content hash of the copy. A custom
+  probe must then change whenever the content changes: an unchanged
+  output is taken as the recorded version without downloading it (see
+  "Sync algorithm", step 2). Without it, the copy is fetched every run.
+  `rclone` endpoints do not accept it; their listing qualifies by
+  itself when it includes SHA-256, SHA-1 or MD5.
+  `rclone_transport` (`rclone` only): `"cli"` (default) runs rclone
+  commands; `"auto"` uses the daemon's persistent `rclone rcd` when this
+  rclone supports it (1.61+) and commands otherwise (see "Optional rcd
+  transport" in the endpoints chapter).
 - `[sessions]`: `enabled`, `mount_dir` (remote default `~/kp`),
   `tunnel_port` (default 2222; the remote end of the reverse tunnel, so
   one session per remote host at a time: a port already in use there

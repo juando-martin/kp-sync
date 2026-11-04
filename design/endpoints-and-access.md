@@ -137,6 +137,9 @@
     the current copy (the next run imports), a busy drain is retried
     later (the daemon watch only tries without waiting), and a copy left
     at cleanup is removed by the next daemon start or by logout.
+    An import or drain takes the lock only when it has something to do
+    (a changed external file, or a copy without one); an unchanged run
+    neither waits for nor blocks rclone children.
   - *Watch.* While running, the daemon watches the external file's
     directory (or its parent while absent, or polls): appearance or change
     imports and, while leases are held, starts a sync; disappearance
@@ -161,6 +164,61 @@
     them. It is idempotent and never touches rclone files. The marker and
     `keydisk.lock` still protect the hub during a reinsert in the middle
     of a slow `down`. `~/.dynamic_config` is neither created nor read.
+- **Optional rcd transport** (`rclone_transport = "auto"` on an `rclone`
+  endpoint; default `"cli"`, plain rclone commands; `"auto"` stays opt-in
+  until it is tested on `alpha`). Each rclone call re-authenticates and
+  re-resolves its paths (1–4 s on Google Drive); a persistent
+  `rclone rcd` keeps both in memory (`src/kp_sync/rclone_rcd.py`).
+  - *Socket only.* `rcd` listens on
+    `<profile run dir>/rclone-rcd/<endpoint>.sock`, in a 0700
+    directory (the socket itself is created 0775), and runs with
+    `--rc-no-auth`, which is acceptable only there: without it rclone
+    refuses `operations/*` with HTTP 403 even on a Unix socket. There is
+    no loopback TCP fallback.
+  - *Selection.* Unix sockets need rclone 1.61; it is detected by
+    starting `rcd` and calling `rc/noop` within 10 s, not by parsing
+    versions (1.60.1 exits at once with `listen tcp: … unknown port`).
+    A failed start logs once and the process uses commands for the rest
+    of its life. Only the exact argument vectors kp-sync generates are
+    translated (`lsjson --hash PATH` to `operations/stat`, or
+    `operations/list` for a directory; the filtered recursive listing to
+    one `operations/list` with the same include rules and depth;
+    `copyto` to `operations/copyfile`, which updates Drive files in
+    place like `copyto`; `deletefile`/`rmdir`); custom
+    `download`/`upload`/`probe` commands and the batched base transfers
+    always run as commands. Listings are identical to `lsjson` output,
+    so probe tokens do not change with the transport.
+  - *Ownership.* Only the daemon starts and stops `rcd` (lazily, one per
+    endpoint, kept across runs, stopped at idle exit and shutdown). Other
+    processes (`--no-daemon`, `history`, `doctor`, …) use its socket
+    while it answers `rc/noop` and plain rclone otherwise; they never
+    start one. A leftover answering socket from an earlier daemon is told
+    to `core/quit` before a new `rcd` starts; stdout/stderr are
+    discarded.
+  - *Credentials (F8).* `rcd` reads its `--config` once, keeps the
+    credentials in memory and writes refreshed tokens back, with no
+    reload call. With a private copy it therefore holds
+    `rclone-credentials.lock` shared for its whole lifetime: the daemon
+    takes the lock and the `rcd` child inherits the locked descriptor,
+    so the lock ends exactly when `rcd` exits, even if the daemon dies.
+    An import or drain (run start/end, the daemon's watch, runtime
+    cleanup and shutdown) stops the daemon's `rcd` first; it restarts on
+    the next call if credentials remain. A missing copy starts no `rcd`.
+  - *Failures.* Decided conservatively in the unattended run of
+    2026-11-04. Every operation runs as an `_async` job polled with
+    `job/status` and limited by the endpoint's `timeout`. A timed-out
+    command is killed, but a job keeps running in the server, so on
+    timeout the job is asked to stop (`job/stop`) and awaited for 5 s;
+    if it is still running the daemon stops its `rcd` (another process
+    sends `core/quit`), so no write can land after the run has moved on
+    to re-check the target. The call then fails like a timed-out
+    command. A failure after a request was sent raises exactly the
+    exceptions of a failed rclone command (`object not found` and
+    `directory not found` count as missing, like exit statuses 3/4; an
+    unknown method's 404 does not), so the existing retry and restart
+    rules apply and the operation is never repeated as a command. Only
+    when the socket could not be reached, so nothing was requested, does
+    the call run as a command instead.
 - **`~/bin/keepass`**: thin wrapper over `kp-sync run --app keepassxc`
   (`--legacy` selects `keepass-legacy`), keeping the name existing
   launchers use. The desktop menu entry and autostart call `kp-sync run`

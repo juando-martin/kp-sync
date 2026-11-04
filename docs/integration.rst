@@ -21,7 +21,9 @@ Existing extension points
 
 * **Command endpoint:** implement a bridge with fetch/store/probe argv arrays
   and ``{file}`` placeholders. It can integrate a new transport without
-  introducing a Python plugin loader.
+  introducing a Python plugin loader. Its copy is downloaded every run
+  unless ``probe_is_content_hash = true`` declares that the probe prints
+  a content hash, which must then change whenever the content changes.
 * **Python endpoint:** subclass :class:`kp_sync.endpoints.base.Endpoint` and
   pass an instance to :class:`kp_sync.engine.SyncEngine`. See :doc:`api` for
   fingerprint, identity, error and promotion obligations.

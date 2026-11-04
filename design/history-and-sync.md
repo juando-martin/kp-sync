@@ -53,6 +53,23 @@ Rules:
   also names stale bases. Stale cloud bases are deleted in batches (at
   least eight, after one more state check), since a leftover
   content-addressed base only costs storage; drive stores prune at once.
+  rclone's cost is per call (authentication and path lookups, 3–4 s on
+  Google Drive), not per byte, so each publication batches the bases of
+  one cloud store into one call per direction: missing bases are
+  uploaded with one `rclone copy --files-from-raw … --no-traverse`,
+  stale ones deleted with one `rclone delete --files-from-raw …
+  --max-depth 1` (never called with an empty list), and bases a drive
+  store lacks are first fetched from the cloud with one `copy` into a
+  private directory, each verified by SHA-256 before it enters the
+  runtime cache (a mismatch fails as for a single download; an
+  unreachable store is skipped and the bases are looked up one by one
+  as before). A failed batch fails like a failed single transfer; a
+  partial upload or delete is harmless because bases are content
+  addressed and the state is written only after all its bases. The
+  name list is a private runtime file. `state.json` and the database
+  stay separate, ordered in-place `copyto` writes with the shared-state
+  checks between them, and `kp-sync cleanup` keeps its per-base deletion
+  with a state re-check before each.
   New or merged copy records and drive-to-cloud reconciliation still
   publish immediately. An empty or outdated drive store is brought current
   even when cloud history is unchanged; identical stores incur no writes.
@@ -276,7 +293,14 @@ that host too.
    stores and the runtime cache (merged per record, see "Baseline store").
 2. **Probe**: for each endpoint, `probe` if supported; if the fingerprint
    equals the one recorded for a known version, its state follows without
-   fetching.
+   fetching. This shortcut needs a fingerprint that changes whenever the
+   content changes: a SHA-256 equal to the version, or a recorded token
+   that includes a content hash (SHA-256, SHA-1 or MD5). An `rclone`
+   remote that lists none of them (only size and modification time) and a
+   `command` endpoint are downloaded on every run, unless the `command`
+   endpoint sets `probe_is_content_hash = true` because its `probe`
+   prints a real content hash. Only such tokens are recorded; tokens
+   recorded by earlier versions without a content hash are ignored.
    An `rclone` endpoint observes its database and the `kp-sync/` history
    with one filtered `lsjson --hash` listing (one rclone process; each costs
    1–2 s). A listed remote checksum (MD5 on Google Drive) that matches a

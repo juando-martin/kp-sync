@@ -5,8 +5,32 @@ hold the details; design decisions live in the `design/` chapters.
 
 ## Unreleased
 
+### Added
+
+- Optional `rclone_transport = "auto"` on an `rclone` endpoint: the
+  daemon keeps a persistent `rclone rcd` on a private socket, so cloud
+  calls skip repeated authentication (about 1 s instead of 2–4 s per call
+  on Google Drive). It needs rclone 1.61 or later; older rclone, other
+  processes when the daemon is not running and custom commands keep
+  using plain rclone commands. The default stays `"cli"`.
+
+### Changed
+
+- Cloud history is faster to publish: all history copies (bases) a sync
+  uploads, downloads or prunes go to the cloud in one rclone call per
+  direction instead of one call per file (each call costs several
+  seconds on Google Drive). `state.json` and the database are still
+  written separately and in order.
+
 ### Fixed
 
+- A copy is no longer taken as unchanged just because its size and
+  modification time are unchanged. kp-sync skips downloading a copy only
+  when its listing or probe includes a content hash (SHA-256, SHA-1 or
+  MD5, as Google Drive provides); other rclone remotes and `command`
+  endpoints are downloaded on every sync. A `command` endpoint whose
+  `probe` prints a real content hash can set the new
+  `probe_is_content_hash = true` to keep the shortcut.
 - A pendrive whose history cannot be updated (full, read-only remount,
   I/O error) no longer fails every sync while it is attached. Once the
   cloud (or the first drive when offline) holds the new history, the

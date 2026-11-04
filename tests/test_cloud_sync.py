@@ -3,11 +3,12 @@ import fnmatch
 import hashlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest.mock import patch
 
 from pykeepass import PyKeePass, create_database
@@ -16,12 +17,15 @@ from kp_sync.baseline import CloudStore, DriveStore
 from kp_sync.baseline import BaselineManager
 from kp_sync.config import load_config
 from kp_sync.drives import DriveEndpoint
+from kp_sync.endpoints.command import CommandEndpoint
 from kp_sync.endpoints.rclone import RcloneEndpoint
+from kp_sync.endpoints.base import EndpointUnavailable
 from kp_sync.engine import SyncEngine
 from kp_sync.kdbx import inspect_kdbx
-from kp_sync.state import HistoryState
+from kp_sync.state import HistoryState, StateError
 from kp_sync.ui.fake import FakeUI
 from kp_sync.ui.none import NoneUI
+from tests.fixtures import kdbx4_bytes
 
 
 class FakeRclone:
@@ -29,6 +33,8 @@ class FakeRclone:
         self.root = root
         self.online = True
         self.hashes = True
+        # Google Drive lists only MD5 before rclone 1.61.
+        self.md5_only = False
         self.calls = []
 
     def path(self, value):
@@ -47,7 +53,7 @@ class FakeRclone:
         paths = []
         while args:
             arg = args.pop(0)
-            if arg in {"--max-depth", "--include"}:
+            if arg in {"--max-depth", "--include", "--files-from-raw"}:
                 options.setdefault(arg, []).append(args.pop(0))
             elif arg.startswith("-"):
                 options[arg] = True
@@ -98,6 +104,7 @@ class FakeRclone:
                                     {"SHA-256": inspect_kdbx(item).sha256}
                                     if item.is_file()
                                     and item.suffix == ".kdbx"
+                                    and not self.md5_only
                                     else (
                                         {
                                             "MD5": hashlib.md5(
@@ -121,6 +128,24 @@ class FakeRclone:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
                 destination.chmod(0o600)
+        elif command in {"copy", "delete"}:
+            (listing,) = options["--files-from-raw"]
+            names = Path(listing).read_text().splitlines()
+            assert names and all("/" not in name for name in names), names
+            source = self.path(paths[0])
+            if command == "delete":
+                assert options["--max-depth"] == ["1"], options
+                if not source.is_dir():
+                    status = 3
+                for name in names if source.is_dir() else ():
+                    (source / name).unlink(missing_ok=True)
+            else:
+                assert "--no-traverse" in options, options
+                destination = self.path(paths[1])
+                for name in names:
+                    if (source / name).is_file():
+                        destination.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(source / name, destination / name)
         elif command == "deletefile":
             self.path(paths[0]).unlink(missing_ok=True)
         elif command == "rmdir":
@@ -190,7 +215,7 @@ class CloudSyncTest(unittest.TestCase):
         self.mount.mkdir()
         (self.mount / "pass.kdbx").write_bytes(self.initial)
 
-    def engine(self, host, *, drive=False, ui=None):
+    def engine(self, host, *, drive=False, ui=None, extra=()):
         home = self.root / host
         home.mkdir(exist_ok=True)
         runtime = home / "runtime"
@@ -206,7 +231,7 @@ class CloudSyncTest(unittest.TestCase):
             ui=config.ui | {"ask_first": False},
         )
         cloud = RcloneEndpoint("cloud", "fake", runner=self.runner)
-        endpoints = [cloud]
+        endpoints = [cloud, *extra]
         stores = [CloudStore(cloud, "kp-sync")]
         if drive:
             pendrive = DriveEndpoint(
@@ -368,6 +393,127 @@ class CloudSyncTest(unittest.TestCase):
         # the checksum-validated runtime cache of a new engine.
         self.assertEqual(len(self.runner.calls), 1, self.runner.calls)
         self.assertEqual(self.runner.calls[0][1], "lsjson")
+
+    def test_listed_md5_alone_identifies_a_known_cloud_copy(self):
+        self.runner.md5_only = True
+        self.engine("left").sync()
+        engine = self.engine("left")
+        self.runner.calls.clear()
+        self.assertEqual(engine.sync().action, "unchanged")
+        self.assertEqual(
+            [call[1] for call in self.runner.calls],
+            ["lsjson"],
+            self.runner.calls,
+        )
+
+    _legacy_token = False
+
+    def test_stored_hashless_token_from_older_versions_is_not_trusted(self):
+        self._legacy_token = True
+        self.test_hashless_rewrite_keeping_size_and_mtime_is_downloaded()
+
+    def test_hashless_rewrite_keeping_size_and_mtime_is_downloaded(self):
+        # Size and mtime survive a same-size rewrite on some backends.
+        self.runner.hashes = False
+        fake = self.runner
+
+        def frozen(argv, **kwargs):
+            result = fake(argv, **kwargs)
+            if argv[1] == "lsjson" and result.stdout:
+                items = json.loads(result.stdout)
+                for item in items:
+                    if item.get("Path") == "pass.kdbx":
+                        item["Size"], item["ModTime"] = 4096, "frozen"
+                result.stdout = json.dumps(items)
+            return result
+
+        self.runner = frozen
+        self.assertEqual(self.engine("left").sync().action, "committed")
+        shared = HistoryState.load(self.remote / "kp-sync" / "state.json")
+        self.assertEqual(shared.copies["cloud:fake"].remote_hashes, {})
+        if self._legacy_token:
+            # Earlier versions stored size/mtime tokens unconditionally.
+            token = RcloneEndpoint("cloud", "fake", runner=frozen).probe()
+            run = self.root / "left/runtime/kp-sync"
+            for path in (
+                self.remote / "kp-sync/state.json",
+                run / "state.json",
+                *(run / "history-cache").glob("*.json"),
+            ):
+                state = HistoryState.load(path)
+                state.copies["cloud:fake"] = replace(
+                    state.copies["cloud:fake"],
+                    remote_hashes={"probe": token.token},
+                )
+                state.save(path)
+        self.edit(self.cloud_db, username="phone")
+        engine = self.engine("left")
+        self.assertEqual(engine.sync().action, "committed")
+        database = PyKeePass(
+            engine.config.hub, password="test-password", keyfile=self.key
+        )
+        self.assertEqual(database.entries[0].username, "phone")
+
+    def command_endpoint(self, *, content_hash, name="command"):
+        copy = self.root / f"{name}.kdbx"
+        if not copy.exists():
+            shutil.copyfile(self.cloud_db, copy)
+        log = self.root / f"{name}-fetches.log"
+        fetch = (
+            sys.executable,
+            "-c",
+            "import shutil,sys; shutil.copyfile(sys.argv[1], sys.argv[2]);"
+            "open(sys.argv[3], 'a').write('fetch\\n')",
+            str(copy),
+            "{file}",
+            str(log),
+        )
+        store = (
+            sys.executable,
+            "-c",
+            "import shutil,sys; shutil.copyfile(sys.argv[1], sys.argv[2])",
+            "{file}",
+            str(copy),
+        )
+        # A deliberately constant token: only the flag decides trust.
+        probe = (sys.executable, "-c", "print('constant')")
+        endpoint = CommandEndpoint(
+            name,
+            fetch,
+            store,
+            probe=probe,
+            probe_is_content_hash=content_hash,
+        )
+        return endpoint, copy, log
+
+    def check_command_fetches(self, *, content_hash):
+        endpoint, copy, log = self.command_endpoint(content_hash=content_hash)
+        self.assertEqual(
+            self.engine("left", extra=(endpoint,)).sync().action, "committed"
+        )
+        log.unlink()
+        engine = self.engine("left", extra=(endpoint,))
+        self.assertEqual(engine.sync().action, "unchanged")
+        return log.exists()
+
+    def test_undeclared_command_probe_token_downloads_every_run(self):
+        self.assertTrue(self.check_command_fetches(content_hash=False))
+
+    def test_declared_content_hash_probe_skips_the_download(self):
+        self.assertFalse(self.check_command_fetches(content_hash=True))
+
+    def test_undeclared_command_probe_does_not_hide_an_edit(self):
+        endpoint, copy, log = self.command_endpoint(content_hash=False)
+        self.assertEqual(
+            self.engine("left", extra=(endpoint,)).sync().action, "committed"
+        )
+        self.edit(copy, username="command-edit")
+        engine = self.engine("left", extra=(endpoint,))
+        self.assertEqual(engine.sync().action, "committed")
+        database = PyKeePass(
+            self.cloud_db, password="test-password", keyfile=self.key
+        )
+        self.assertEqual(database.entries[0].username, "command-edit")
 
     def test_hub_edit_uploads_without_downloading_cloud_copies_again(self):
         engine = self.engine("left")
@@ -710,3 +856,190 @@ class CloudSyncTest(unittest.TestCase):
                 {path.stem for path in (mount / "kp-sync/bases").iterdir()},
                 set(shared.versions),
             )
+
+
+class BatchedBaseTransferTest(unittest.TestCase):
+    """Base uploads, downloads and deletes take one rclone call each."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.remote = self.root / "remote"
+        self.remote.mkdir()
+        self.runner = FakeRclone(self.remote)
+        self.runtime = self.root / "runtime"
+        self.runtime.mkdir(mode=0o700)
+        self.work = self.runtime / "tmp"
+        self.work.mkdir(mode=0o700)
+        self.state = HistoryState()
+        self.files = {}
+        parent = None
+        for index in range(4):
+            data = kdbx4_bytes(b"version %d " % index * 20)
+            path = self.root / f"input-{index}.kdbx"
+            path.write_bytes(data)
+            sha = inspect_kdbx(path).sha256
+            self.state.commit(
+                sha,
+                (parent,) if parent else (),
+                "test",
+                ("hub:test",),
+                size=len(data),
+            )
+            self.files[sha] = path
+            parent = sha
+        self.bases = self.remote / "kp-sync" / "bases"
+
+    def manager(self, *stores):
+        endpoint = RcloneEndpoint("cloud", "fake", runner=self.runner)
+        cloud = CloudStore(endpoint, "kp-sync")
+        return BaselineManager(self.runtime, (cloud, *stores))
+
+    def cache(self, shas):
+        directory = self.runtime / "bases"
+        directory.mkdir(mode=0o700, exist_ok=True)
+        for sha in shas:
+            shutil.copyfile(self.files[sha], directory / f"{sha}.kdbx")
+
+    def commands(self):
+        return [call[1] for call in self.runner.calls]
+
+    def test_missing_bases_are_uploaded_in_one_call_before_state(self):
+        self.cache(self.files)
+        manager = self.manager()
+        manager.load(self.work)
+        self.runner.calls.clear()
+        manager.save(self.state, self.work)
+        commands = self.commands()
+        self.assertEqual(commands.count("copy"), 1, self.runner.calls)
+        upload = self.runner.calls[commands.index("copy")]
+        self.assertEqual(upload[-1], "fake:kp-sync/bases")
+        state_write = next(
+            index
+            for index, call in enumerate(self.runner.calls)
+            if call[1] == "copyto" and call[-1] == "fake:kp-sync/state.json"
+        )
+        self.assertLess(commands.index("copy"), state_write)
+        self.assertNotIn(
+            "fake:kp-sync/bases",
+            {
+                PurePosixPath(call[-1]).parent.as_posix()
+                for call in self.runner.calls
+                if call[1] == "copyto"
+            },
+        )
+        self.assertEqual(
+            {path.stem for path in self.bases.iterdir()}, set(self.files)
+        )
+        for sha, path in self.files.items():
+            self.assertEqual(
+                (self.bases / f"{sha}.kdbx").read_bytes(), path.read_bytes()
+            )
+
+    def test_failed_batch_upload_publishes_no_state(self):
+        self.cache(self.files)
+        manager = self.manager()
+        manager.load(self.work)
+        runner = self.runner
+
+        def failing(argv, **kwargs):
+            if argv[1] == "copy":
+                raise subprocess.CalledProcessError(5, argv)
+            return runner(argv, **kwargs)
+
+        for store in manager.stores:
+            store.endpoint._runner = failing
+        with self.assertRaises(EndpointUnavailable):
+            manager.save(self.state, self.work)
+        self.assertFalse((self.remote / "kp-sync" / "state.json").exists())
+
+    def test_stale_bases_are_deleted_in_one_call_after_state(self):
+        self.cache(self.files)
+        self.bases.mkdir(parents=True)
+        stale = []
+        for index in range(BaselineManager.PRUNE_BATCH):
+            data = kdbx4_bytes(b"stale %d " % index * 20)
+            path = self.root / "stale.kdbx"
+            path.write_bytes(data)
+            sha = inspect_kdbx(path).sha256
+            shutil.copyfile(path, self.bases / f"{sha}.kdbx")
+            stale.append(sha)
+        (self.bases / "notes.txt").write_text("unrelated")
+        manager = self.manager()
+        manager.load(self.work)
+        self.runner.calls.clear()
+        manager.save(self.state, self.work)
+        commands = self.commands()
+        self.assertEqual(commands.count("delete"), 1, self.runner.calls)
+        self.assertNotIn("deletefile", commands)
+        state_write = max(
+            index
+            for index, call in enumerate(self.runner.calls)
+            if call[1] == "copyto" and call[-1] == "fake:kp-sync/state.json"
+        )
+        self.assertGreater(commands.index("delete"), state_write)
+        delete = self.runner.calls[commands.index("delete")]
+        listing = delete[delete.index("--files-from-raw") + 1]
+        self.assertFalse(Path(listing).exists())
+        remaining = {path.name for path in self.bases.iterdir()}
+        self.assertEqual(
+            remaining, {f"{sha}.kdbx" for sha in self.files} | {"notes.txt"}
+        )
+
+    def test_drive_bases_are_downloaded_in_one_call_and_verified(self):
+        self.bases.mkdir(parents=True)
+        for sha, path in self.files.items():
+            shutil.copyfile(path, self.bases / f"{sha}.kdbx")
+        self.state.save(self.remote / "kp-sync" / "state.json")
+        mount = self.root / "mount"
+        mount.mkdir()
+        drive = DriveStore(
+            DriveEndpoint(
+                "pendrive",
+                mount,
+                "pass.kdbx",
+                "serial:uuid",
+                identity_resolver=lambda mount: "serial:uuid",
+            ),
+            "kp-sync",
+        )
+        manager = self.manager(drive)
+        manager.load(self.work)
+        self.runner.calls.clear()
+        manager.save(self.state, self.work)
+        downloads = [
+            call for call in self.runner.calls if call[1] in {"copy", "copyto"}
+        ]
+        self.assertEqual(len(downloads), 1, self.runner.calls)
+        self.assertEqual(downloads[0][1], "copy")
+        self.assertEqual(downloads[0][-2], "fake:kp-sync/bases")
+        self.assertEqual(
+            {path.stem for path in (mount / "kp-sync/bases").iterdir()},
+            set(self.files),
+        )
+        self.assertEqual(
+            {path.stem for path in (self.runtime / "bases").iterdir()},
+            set(self.files),
+        )
+
+    def test_batch_downloaded_base_with_wrong_content_is_rejected(self):
+        self.bases.mkdir(parents=True)
+        shas = sorted(self.files)
+        for sha in shas:
+            shutil.copyfile(self.files[sha], self.bases / f"{sha}.kdbx")
+        # A wrong file under a valid name must never enter the cache.
+        shutil.copyfile(self.files[shas[1]], self.bases / f"{shas[0]}.kdbx")
+        manager = self.manager()
+        manager.load(self.work)
+        with self.assertRaises(StateError):
+            manager.prefetch_bases(shas, self.work)
+        self.assertFalse((self.runtime / "bases" / f"{shas[0]}.kdbx").exists())
+
+    def test_unavailable_batch_download_falls_back_to_other_stores(self):
+        self.bases.mkdir(parents=True)
+        manager = self.manager()
+        manager.load(self.work)
+        self.runner.online = False
+        manager.prefetch_bases(sorted(self.files), self.work)
+        self.assertFalse((self.runtime / "bases").exists())

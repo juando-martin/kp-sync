@@ -1432,11 +1432,12 @@ class SyncEngine:
                     fingerprint = fresh.fingerprint
                     state.copies[identity] = replace(
                         state.copies[identity],
-                        remote_hashes={
-                            "probe": fingerprint.token
-                            or fingerprint.sha256
-                            or ""
-                        },
+                        remote_hashes=(
+                            {"probe": fingerprint.token}
+                            if fingerprint.token_is_content
+                            and fingerprint.token
+                            else {}
+                        ),
                     )
             state.save(state_path)
             self._publish(state, temporary, observations)
@@ -1526,8 +1527,15 @@ class SyncEngine:
                 and record.sha256 == record.version
                 and (
                     fingerprint.sha256 == record.version
-                    or record.remote_hashes.get("probe")
-                    == (fingerprint.token or fingerprint.sha256)
+                    or (
+                        # Only a token covering a content hash may
+                        # stand for the bytes; size and mtime can
+                        # survive edits.
+                        fingerprint.token_is_content
+                        and fingerprint.token is not None
+                        and record.remote_hashes.get("probe")
+                        == fingerprint.token
+                    )
                 )
             ):
                 base = self.run_directory / "bases" / f"{record.version}.kdbx"
@@ -4176,11 +4184,18 @@ def _merge_input_key(
 def endpoints_from_config(
     config: Config,
     run_directory: str | os.PathLike[str],
+    *,
+    rclone_daemons: dict | None = None,
 ) -> tuple[Endpoint, ...]:
     """Create endpoint adapters from configuration and attached drives.
 
     Runtime-discovered sessions are added by ``session_endpoints``. This
     constructs adapters without probing remote endpoints.
+
+    ``rclone_daemons`` is the daemon's registry of owned ``rclone rcd``
+    transports for endpoints with ``rclone_transport = "auto"``, kept
+    across runs. Without it, such endpoints only use an rcd the daemon
+    already runs.
     """
     endpoints: list[Endpoint] = []
     for item in config.endpoints:
@@ -4196,17 +4211,19 @@ def endpoints_from_config(
             from kp_sync.endpoints.rclone import RcloneEndpoint
             from kp_sync.rclone_credentials import RcloneCredentials
 
+            credentials = (
+                RcloneCredentials(item.name, item.rclone_config, run_directory)
+                if item.rclone_config is not None
+                else None
+            )
             endpoints.append(
                 RcloneEndpoint(
                     item.name,
                     item.remote,
                     database_name=config.db_name,
-                    credentials=(
-                        RcloneCredentials(
-                            item.name, item.rclone_config, run_directory
-                        )
-                        if item.rclone_config is not None
-                        else None
+                    credentials=credentials,
+                    transport=_rclone_transport(
+                        item, credentials, run_directory, rclone_daemons
                     ),
                     download=item.download,
                     upload=item.upload,
@@ -4250,6 +4267,24 @@ def endpoints_from_config(
     return tuple(endpoints)
 
 
+def _rclone_transport(item, credentials, run_directory, registry):
+    """Return the rcd transport for an ``auto`` endpoint, if any."""
+    if item.rclone_transport != "auto":
+        return None
+    from kp_sync.rclone_rcd import RcloneDaemon
+
+    if registry is None:
+        return RcloneDaemon(
+            item.name, run_directory, owner=False, credentials=credentials
+        )
+    transport = registry.get(item.name)
+    if transport is None:
+        transport = registry[item.name] = RcloneDaemon(
+            item.name, run_directory, owner=True, credentials=credentials
+        )
+    return transport
+
+
 def session_endpoints(config: Config, run_directory) -> list[Endpoint]:
     """Discover sessions from the profile's private runtime state."""
     from kp_sync.endpoints.session import SessionEndpoint
@@ -4288,6 +4323,7 @@ def _command_endpoint(item: EndpointConfig) -> CommandEndpoint:
         item.fetch,
         item.store,
         probe=item.probe,
+        probe_is_content_hash=item.probe_is_content_hash,
         identity=item.identity or f"command:{item.name}",
         readonly=item.readonly,
         optional=item.optional,

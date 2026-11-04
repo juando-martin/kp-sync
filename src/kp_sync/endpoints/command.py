@@ -27,6 +27,7 @@ class CommandEndpoint(Endpoint):
         store: Sequence[str],
         *,
         probe: Sequence[str] | None = None,
+        probe_is_content_hash: bool = False,
         identity: str | None = None,
         **kwargs,
     ) -> None:
@@ -37,6 +38,9 @@ class CommandEndpoint(Endpoint):
             fetch: Command template that writes to ``{file}``.
             store: Command template that reads from ``{file}``.
             probe: Optional command returning a fingerprint token.
+            probe_is_content_hash: Whether the probe prints a content
+                hash, so that it changes whenever the content changes.
+                Only then may an unchanged token skip the download.
             identity: Copy identity; defaults to ``command:<name>``.
             **kwargs: Policy options accepted by ``Endpoint``.
 
@@ -46,6 +50,9 @@ class CommandEndpoint(Endpoint):
         self.fetch_command = tuple(fetch)
         self.store_command = tuple(store)
         self.probe_command = tuple(probe) if probe is not None else None
+        if probe_is_content_hash and self.probe_command is None:
+            raise ValueError("probe_is_content_hash requires a probe command")
+        self.probe_is_content_hash = bool(probe_is_content_hash)
         if not self.fetch_command or not self.store_command:
             raise ValueError("fetch and store commands must not be empty")
         if not any("{file}" in arg for arg in self.fetch_command):
@@ -111,7 +118,9 @@ class CommandEndpoint(Endpoint):
             raise EndpointUnavailable(
                 f"{self.name}: probe returned an empty fingerprint"
             )
-        return EndpointFingerprint(None, token=token)
+        return EndpointFingerprint(
+            None, token=token, token_is_content=self.probe_is_content_hash
+        )
 
     def _run(self, command: tuple[str, ...], file_path: Path) -> None:
         self._execute(command, file_path=file_path)

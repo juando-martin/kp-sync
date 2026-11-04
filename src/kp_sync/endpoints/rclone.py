@@ -3,12 +3,14 @@
 import hashlib
 import json
 import os
+import shutil
 import stat
 import subprocess
+import tempfile
 import time
 import uuid
 from pathlib import Path, PurePosixPath
-from typing import Callable, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 
 from kp_sync.endpoints.base import (
     Endpoint,
@@ -25,6 +27,7 @@ class EndpointMissing(EndpointUnavailable):
 
 
 _GLOB_SPECIAL = set("*?[]{}\\")
+_CONTENT_HASHES = frozenset({"sha256", "sha1", "md5"})
 
 
 def _hash_pairs(hashes: dict[str, str]) -> tuple[tuple[str, str], ...]:
@@ -57,6 +60,7 @@ class RcloneEndpoint(Endpoint):
         identity: str | None = None,
         runner: Callable | None = None,
         credentials=None,
+        transport=None,
         **kwargs,
     ) -> None:
         """Configure the remote root, commands, and listing cache.
@@ -75,6 +79,10 @@ class RcloneEndpoint(Endpoint):
             credentials: Optional ``RcloneCredentials``; rclone then
                 uses its private copy, and the endpoint is unavailable
                 without one.
+            transport: Optional ``kp_sync.rclone_rcd.RcloneDaemon``.
+                Generated commands then go through its ``rclone rcd``
+                while it is ready; custom and batch commands, and every
+                call while it is not ready, run as commands.
             **kwargs: Policy options accepted by ``Endpoint``.
 
         Raises:
@@ -89,6 +97,7 @@ class RcloneEndpoint(Endpoint):
             str(rclone_config) if rclone_config is not None else None
         )
         self.credentials = credentials
+        self.transport = transport
         self._runner = runner if runner is not None else subprocess.run
         self.database_remote = self.remote_path(database_name)
         self.database_relative = str(PurePosixPath(database_name))
@@ -115,11 +124,16 @@ class RcloneEndpoint(Endpoint):
     def begin_run(self) -> None:
         """Import changed external credentials before rclone calls."""
         if self.credentials is not None:
+            if self.transport is not None and self.credentials.import_due():
+                # The rcd holds the copy and its lock; it has no reload.
+                self.transport.stop()
             self.credentials.refresh()
 
     def end_run(self) -> None:
         """Drop drained credentials once the run is done."""
         if self.credentials is not None:
+            if self.transport is not None and self.credentials.drain_due():
+                self.transport.stop()
             self.credentials.finish()
 
     @staticmethod
@@ -169,12 +183,57 @@ class RcloneEndpoint(Endpoint):
         return f"{self.root}{separator}{path}"
 
     def _execute(self, command: Sequence[str]) -> subprocess.CompletedProcess:
+        if self.transport is not None:
+            result = self._execute_rcd(command)
+            if result is not None:
+                return result
         if self.credentials is None:
             return self._execute_with(command, self.rclone_config)
         # The shared lock keeps imports and drains out while rclone,
         # which may write refreshed tokens back, uses the copy.
         with self.credentials.in_use() as config:
             return self._execute_with(command, config)
+
+    def _execute_rcd(
+        self, command: Sequence[str]
+    ) -> subprocess.CompletedProcess | None:
+        """Run a generated command through the rcd, if it is ready.
+
+        Returns ``None`` when the command must run as a process instead:
+        it is not a generated shape, the rcd is not ready, or it could
+        not be reached before anything was requested. Failures after a
+        request are raised like failed commands.
+        """
+        from kp_sync import rclone_rcd
+
+        argv = list(command)
+        request = rclone_rcd.translate(argv, self.root)
+        if request is None or not self.transport.ready():
+            return None
+        started = time.monotonic()
+        outcome = "failed"
+        try:
+            stdout = request(self.transport, self.timeout)
+            outcome = "ok"
+        except rclone_rcd.RcdUnreachable:
+            outcome = "unreachable; using a command"
+            return None
+        except rclone_rcd.RcdTimeout as exc:
+            raise EndpointUnavailable(
+                f"{self.name}: rcd request timed out after "
+                f"{self.timeout} seconds"
+            ) from exc
+        except rclone_rcd.RcdError as exc:
+            # Same exceptions as a failed command, so the engine's
+            # retry and restart rules apply unchanged.
+            error = EndpointMissing if exc.missing else EndpointUnavailable
+            raise error(f"{self.name}: rcd request failed") from exc
+        finally:
+            info(
+                f"rclone {argv[1]} for {self.name} via rcd: "
+                f"{time.monotonic() - started:.3f}s ({outcome})"
+            )
+        return subprocess.CompletedProcess(argv, 0, stdout, "")
 
     def _execute_with(
         self, command: Sequence[str], config: str | None
@@ -499,8 +558,17 @@ class RcloneEndpoint(Endpoint):
                 token_data, sort_keys=True, separators=(",", ":")
             ).encode()
         ).hexdigest()
+        pairs = _hash_pairs(self.hashes)
         return EndpointFingerprint(
-            sha256, item.get("Size"), token, _hash_pairs(self.hashes)
+            sha256,
+            item.get("Size"),
+            token,
+            pairs,
+            # Without a listed content hash the token is only size and
+            # modification time, which a same-size rewrite can keep.
+            token_is_content=any(
+                algorithm in _CONTENT_HASHES for algorithm, _ in pairs
+            ),
         )
 
     def forget_observations(self) -> None:
@@ -664,6 +732,201 @@ class RcloneEndpoint(Endpoint):
             self._execute(("rclone", "copyto", str(source), remote_path))
         finally:
             self._listing = None
+
+    @staticmethod
+    def _batch_names(names: Iterable[str]) -> list[str]:
+        result = sorted(set(names))
+        for name in result:
+            if (
+                not isinstance(name, str)
+                or not name
+                or name in {".", ".."}
+                or any(char in name for char in "/\\\n\r\x00")
+            ):
+                raise ValueError(f"unsafe batch file name: {name!r}")
+        return result
+
+    def _files_from(self, names: list[str], directory: Path) -> Path:
+        # One name per line, read raw: no globbing or comments.
+        listing = directory / "files-from.txt"
+        atomic_write(listing, "".join(f"{name}\n" for name in names).encode())
+        return listing
+
+    def upload_files(
+        self,
+        files: Mapping[str, str | Path],
+        remote_directory: str,
+        *,
+        temporary: str | Path,
+    ) -> None:
+        """Upload several files into one remote directory in one call.
+
+        Args:
+            files: Remote file name mapped to its local source.
+            remote_directory: Fully qualified destination directory.
+            temporary: Private local directory for staging.
+
+        Raises:
+            PermissionError: If the endpoint is read-only.
+            ValueError: If a name or the directory is unsafe.
+            EndpointUnavailable: If the upload fails; some files may
+                already have been uploaded.
+
+        Notes:
+            Meant for content-addressed files, where a partial upload is
+            harmless. Uses ``copy --files-from-raw --no-traverse``.
+        """
+        self._writable()
+        self._child_path(remote_directory)
+        names = self._batch_names(files)
+        if not names:
+            return
+        with tempfile.TemporaryDirectory(
+            prefix="rclone-upload-", dir=temporary
+        ) as name:
+            staging = Path(name) / "files"
+            staging.mkdir(mode=0o700)
+            for item in names:
+                source = Path(files[item])
+                try:
+                    os.link(source, staging / item, follow_symlinks=False)
+                except OSError:
+                    shutil.copyfile(source, staging / item)
+            listing = self._files_from(names, Path(name))
+            try:
+                self._execute(
+                    (
+                        "rclone",
+                        "copy",
+                        "--files-from-raw",
+                        str(listing),
+                        "--no-traverse",
+                        str(staging),
+                        remote_directory,
+                    )
+                )
+            finally:
+                self._listing = None
+
+    def download_files(
+        self,
+        remote_directory: str,
+        names: Iterable[str],
+        destination: str | Path,
+    ) -> set[str]:
+        """Download several files from one remote directory in one call.
+
+        Args:
+            remote_directory: Fully qualified source directory.
+            names: File names below ``remote_directory``.
+            destination: Empty private local directory to fill.
+
+        Returns:
+            Names now present in ``destination`` as regular files;
+            absent remote files are simply missing from the result.
+
+        Raises:
+            ValueError: If a name or the directory is unsafe.
+            EndpointUnavailable: If the download fails.
+            EndpointError: If the destination is not an empty directory.
+
+        Notes:
+            The caller must verify each file's content before use.
+        """
+        self._child_path(remote_directory)
+        names = self._batch_names(names)
+        target = Path(destination)
+        try:
+            metadata = target.lstat()
+        except OSError as exc:
+            raise EndpointError(
+                f"{self.name}: download directory is missing"
+            ) from exc
+        if not stat.S_ISDIR(metadata.st_mode) or any(target.iterdir()):
+            raise EndpointError(
+                f"{self.name}: download directory must be empty"
+            )
+        if not names:
+            return set()
+        with tempfile.TemporaryDirectory(
+            prefix="rclone-download-", dir=target.parent
+        ) as name:
+            listing = self._files_from(names, Path(name))
+            try:
+                self._execute(
+                    (
+                        "rclone",
+                        "copy",
+                        "--files-from-raw",
+                        str(listing),
+                        "--no-traverse",
+                        remote_directory,
+                        str(target),
+                    )
+                )
+            except EndpointMissing:
+                return set()
+        present = set()
+        for item in names:
+            path = target / item
+            try:
+                if not stat.S_ISREG(path.lstat().st_mode):
+                    raise EndpointError(
+                        f"{self.name}: download did not produce a "
+                        "regular file"
+                    )
+            except FileNotFoundError:
+                continue
+            os.chmod(path, 0o600, follow_symlinks=False)
+            present.add(item)
+        return present
+
+    def delete_files(
+        self,
+        remote_directory: str,
+        names: Iterable[str],
+        *,
+        temporary: str | Path,
+    ) -> None:
+        """Delete several files directly within one remote directory.
+
+        Args:
+            remote_directory: Fully qualified directory path.
+            names: File names directly below it; absent ones are fine.
+            temporary: Private local directory for the name list.
+
+        Raises:
+            PermissionError: If the endpoint is read-only.
+            ValueError: If a name or the directory is unsafe.
+            EndpointUnavailable: If deletion fails; some files may
+                already be deleted.
+        """
+        self._writable()
+        self._child_path(remote_directory)
+        names = self._batch_names(names)
+        if not names:
+            # An empty list must never reach rclone delete.
+            return
+        with tempfile.TemporaryDirectory(
+            prefix="rclone-delete-", dir=temporary
+        ) as name:
+            listing = self._files_from(names, Path(name))
+            try:
+                self._execute(
+                    (
+                        "rclone",
+                        "delete",
+                        "--files-from-raw",
+                        str(listing),
+                        "--max-depth",
+                        "1",
+                        remote_directory,
+                    )
+                )
+            except EndpointMissing:
+                pass
+            finally:
+                self._listing = None
 
     def _child_path(self, remote_path: str) -> None:
         separator = "" if self.root.endswith(":") else "/"

@@ -328,6 +328,8 @@ class Controller:
         self.watch = HubWatch(config.hub)
         self.credentials = credentials_for(config, self.directory)
         self.credential_state = {}
+        # Owned ``rclone rcd`` transports, by endpoint name.
+        self.rclone_daemons = {}
         self.stopping = False
         self.last_notification = -float("inf")
         self.pending_error = None
@@ -367,7 +369,21 @@ class Controller:
                 if previous is not None and self.leases.leases:
                     self.triggers.trigger(immediate=True)
                 elif not self.leases.leases and not busy:
+                    # An rcd holds the copy's lock; it must go first.
+                    self._stop_rclone_daemon(handle.name)
                     handle.finish(wait=False)
+
+    def _stop_rclone_daemon(self, name=None):
+        """Stop owned rcd transports (all, or one endpoint's)."""
+        for key, transport in list(self.rclone_daemons.items()):
+            if name is None or key == name:
+                try:
+                    transport.stop()
+                except Exception as exc:
+                    error(
+                        f"stopping rclone rcd for {key} failed: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
 
     def _tick_step(self, name, operation, *, circuit_breaker=True):
         now = self.clock()
@@ -436,7 +452,13 @@ class Controller:
             self.leases.take(name, "drive")
 
     def _engine(self, ui):
-        endpoints = list(endpoints_from_config(self.config, self.directory))
+        endpoints = list(
+            endpoints_from_config(
+                self.config,
+                self.directory,
+                rclone_daemons=self.rclone_daemons,
+            )
+        )
         with self.guard:
             access_active = ACCESS_LEASE in self.leases.leases
         if access_active:
@@ -1321,6 +1343,7 @@ class Controller:
                     path.unlink()
             if not any(directory.iterdir()):
                 directory.rmdir()
+        self._stop_rclone_daemon()
         for handle in self.credentials:
             handle.discard()
 
@@ -1710,6 +1733,7 @@ class Controller:
             if self.apps is not None:
                 with self.app_gate:
                     self.apps.close()
+            self._stop_rclone_daemon()
             if final.done():
                 for handle in self.credentials:
                     handle.discard()
