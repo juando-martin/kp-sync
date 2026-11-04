@@ -12,7 +12,7 @@ from kp_sync.endpoints.base import (
     EndpointFingerprint,
     EndpointUnavailable,
 )
-from kp_sync.log import debug
+from kp_sync.log import debug, logged
 
 
 class CommandEndpoint(Endpoint):
@@ -140,7 +140,7 @@ class CommandEndpoint(Endpoint):
         started = time.monotonic()
         outcome = "failed"
         try:
-            result = subprocess.run(
+            result = logged(subprocess.run)(
                 argv,
                 check=True,
                 capture_output=True,
@@ -162,8 +162,8 @@ class CommandEndpoint(Endpoint):
                 f"{self.name}: command failed{detail}"
             ) from exc
         finally:
-            # Configured commands may carry user secrets: never log
-            # their arguments or output.
+            # The command line is logged by logged(); never log
+            # stdin or output.
             debug(
                 f"command {operation} for {self.name}: "
                 f"{time.monotonic() - started:.3f}s ({outcome})"

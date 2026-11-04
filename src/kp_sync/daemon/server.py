@@ -49,7 +49,7 @@ from kp_sync.drives import (
 from kp_sync.engine import SyncEngine, endpoints_from_config
 from kp_sync.endpoints.base import EndpointChanged
 from kp_sync.endpoints.file import _fsync_directory, _rename_noreplace
-from kp_sync.log import debug, error, info, set_log_file
+from kp_sync.log import debug, error, info, logged, set_log_file
 from kp_sync.lock import file_lock
 from kp_sync.paths import ensure_private_directory, ensure_run_dir
 from kp_sync.pending import PendingError, PendingStore, _read_private_json
@@ -1153,7 +1153,7 @@ class Controller:
                 raise RuntimeError("cannot eject a drive that is not attached")
             import subprocess
 
-            subprocess.run(
+            logged(subprocess.run)(
                 ["umount", "--", str(drive.mountpoint)], check=True, timeout=30
             )
         with self.guard:

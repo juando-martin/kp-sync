@@ -20,7 +20,7 @@ from kp_sync.endpoints.base import (
     EndpointUnavailable,
     new_hash,
 )
-from kp_sync.log import detail
+from kp_sync.log import debug_command, detail, logged
 from kp_sync.paths import atomic_write
 
 
@@ -229,6 +229,7 @@ class RcloneEndpoint(Endpoint):
         request = rclone_rcd.translate(argv, self.root)
         if request is None or not self.transport.ready():
             return None
+        debug_command([*argv, "(via rcd)"])
         started = time.monotonic()
         outcome = "failed"
         try:
@@ -263,7 +264,7 @@ class RcloneEndpoint(Endpoint):
         started = time.monotonic()
         succeeded = False
         try:
-            result = self._runner(
+            result = logged(self._runner)(
                 argv,
                 check=True,
                 capture_output=True,

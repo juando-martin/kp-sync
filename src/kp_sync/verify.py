@@ -6,7 +6,7 @@ import subprocess
 import time
 
 from kp_sync.kdbx import KdbxError, KdbxInfo, inspect_kdbx
-from kp_sync.log import debug
+from kp_sync.log import debug, logged
 from kp_sync.ui.base import UI
 
 
@@ -167,7 +167,7 @@ def _verify_with_keepassxc(
     command.append(str(path))
     started = time.monotonic()
     try:
-        result = subprocess.run(
+        result = logged(subprocess.run)(
             command,
             input=password + "\n",
             capture_output=True,

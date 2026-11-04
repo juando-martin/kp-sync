@@ -37,9 +37,12 @@ transport"); No findings remain open.
 ## Open findings
 
 - **T1 (confirmed, test only): intermittent
-  `test_foreign_stale_cache_edits_preserve_new_entries`.** Found on
-  2026-11-04 while checking the logging review fixes; it fails about 3 in
-  20 runs on `65771de` (before the logging work) and after it alike. The
+  `test_foreign_stale_cache_edits_preserve_new_entries`** and
+  `test_merge.MergeTest.test_foreign_stale_cache_keeps_only_post_baseline_changes`.
+  Found on 2026-11-04 while checking the logging work; the first fails
+  about 3 in 20 runs on `65771de` (before the logging work) and after it
+  alike, the second about 5 in 30 on `main` at `01fb5cb`. The second sets
+  its entry time the same way; check it shares the cause. The
   test sets entry A's modification time to the current whole second and
   expects the stale-cache rule to keep that phone edit because it is
   newer than the recorded version; when both fall in the same second the

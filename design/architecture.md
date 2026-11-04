@@ -213,9 +213,14 @@ Status: design only. Implementation is a later phase.
   state with short observed/recorded hashes and how it was observed,
   restarts, the outcome, daemon requests (field names only) and sync
   queueing, and the duration/result of configured commands and the
-  `keepassxc-cli` check. It replaces `KEEPASSDB_DEBUG`. Debug output,
-  like all logging, never carries passwords, command argument lists or
-  command output (configured commands may hold user secrets). A client's
+  `keepassxc-cli` check, and the command line of every external program
+  it runs (`log.logged`), configured commands included: their arguments
+  are already visible in `ps` and in the configuration, and debug is
+  opt-in. Dialog and notification commands show only the program and
+  option names, since their text can quote database content. It
+  replaces `KEEPASSDB_DEBUG`. Logging never carries passwords, stdin or
+  command output, so secrets belong in files or stdin, never in
+  configured arguments. A client's
   `--debug` does not reach the daemon; debug a daemon by running
   `kp-sync daemon --debug` with the service stopped, or by setting
   `KP_SYNC_DEBUG=1` on its unit. `daemon --foreground` is accepted for

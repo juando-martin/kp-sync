@@ -10,7 +10,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from kp_sync.log import error, info
+from kp_sync.log import error, info, logged
 
 _RESOURCE_KINDS = {"ssh-session", "access-owner"}
 _ACTIVE_STATES = {"active", "activating", "deactivating", "reloading"}
@@ -53,7 +53,7 @@ def service_unit(config, resource: str, name: str) -> str:
 
 def _systemctl(args, *, runner=subprocess.run):
     try:
-        return runner(
+        return logged(runner)(
             ["systemctl", "--user", *args],
             capture_output=True,
             text=True,
@@ -92,7 +92,7 @@ def _daemon_systemctl(
     args, *, runner=subprocess.run, timeout=_DAEMON_SYSTEMCTL_TIMEOUT
 ):
     try:
-        return runner(
+        return logged(runner)(
             ["systemctl", "--user", *args],
             capture_output=True,
             text=True,
@@ -510,7 +510,7 @@ def manage_service(
         elif config.source is not None:
             command.extend(("--config", str(config.source)))
         command.extend(("service-run", resource, name))
-        result = runner(
+        result = logged(runner)(
             [
                 "systemd-run",
                 "--user",
@@ -587,7 +587,7 @@ def run_service(config, resource: str, name: str) -> int:
 
 def _run_owner(name: str, command) -> int:
     info(f"Starting configured kp-access-owner {name}")
-    process = subprocess.Popen(
+    process = logged(subprocess.Popen)(
         list(command),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,

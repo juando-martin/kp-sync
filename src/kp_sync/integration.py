@@ -26,6 +26,7 @@ from kp_sync.daemon.systemd import SystemdError, SystemdUser
 from kp_sync.endpoints.rclone import RcloneEndpoint
 from kp_sync.paths import atomic_write, run_dir
 from kp_sync.pending import PendingError, PendingStore
+from kp_sync.log import logged
 
 
 class InstallError(RuntimeError):
@@ -357,7 +358,7 @@ def session_checks(
         checks.append(Check("session:bwrap", False, "bwrap is not installed"))
     else:
         try:
-            trial = runner(
+            trial = logged(runner)(
                 [
                     bwrap,
                     "--unshare-all",
@@ -1223,7 +1224,7 @@ def _rclone_checks(
 def _run(
     runner: Callable, argv: list[str], *, timeout: float
 ) -> subprocess.CompletedProcess:
-    return runner(
+    return logged(runner)(
         argv,
         capture_output=True,
         text=True,
@@ -1322,7 +1323,7 @@ def _diagnostic_keyring_probe(
             )
             command = shutil.which("keyctl") or "keyctl"
             try:
-                result = runner(
+                result = logged(runner)(
                     [
                         "systemd-run",
                         "--user",

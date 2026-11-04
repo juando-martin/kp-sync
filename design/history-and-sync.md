@@ -110,7 +110,9 @@ Rules:
   Missing, changed or checksum-less metadata never authorizes reuse.
   This avoids redundant downloads, not the pre-write shared-state checks.
   Every rclone command logs its operation, endpoint name, elapsed time and
-  success/failure, never its argument list, credentials or command output.
+  success/failure, never credentials or command output; `--debug` also
+  logs its command line (see Logging in
+  [architecture](architecture.md#error-handling-and-safety)).
 - **Reconcile**: when the cloud and a pendrive store are both available
   and the pendrive store has versions or records newer than the cloud's,
   the merged state and the bases it needs are uploaded to the cloud.

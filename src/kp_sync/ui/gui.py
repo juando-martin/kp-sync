@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from kp_sync.log import logged
 from kp_sync.ui.base import UI, UIUnavailable
 
 
@@ -140,8 +141,11 @@ def _run_dialog(
     timeout: int,
     input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str] | None:
+    # Dialog text can quote database content; a custom command gets
+    # its request on stdin, so its own arguments are safe to show.
+    dialog = Path(argv[0]).name in ("zenity", "kdialog")
     try:
-        return subprocess.run(
+        return logged(subprocess.run, hide_text=dialog)(
             argv,
             input=input_text,
             capture_output=True,

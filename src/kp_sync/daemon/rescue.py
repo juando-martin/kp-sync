@@ -20,6 +20,7 @@ from kp_sync.kdbx import KdbxError, inspect_kdbx
 from kp_sync.state import HistoryState, StateError
 from kp_sync.pending import PendingError, PendingStore
 from kp_sync.drives import _validate_identity
+from kp_sync.log import logged
 
 
 class RescueError(RuntimeError):
@@ -357,7 +358,7 @@ class RescueCoordinator:
                 return
             self._poll_notification()
         try:
-            self._notification_process = self.popen(
+            self._notification_process = logged(self.popen, hide_text=True)(
                 [
                     "notify-send",
                     "--app-name=kp-sync",
@@ -412,7 +413,7 @@ class RescueCoordinator:
         if not self._has_display() or timeout <= 0:
             return None
         try:
-            result = subprocess.run(
+            result = logged(subprocess.run, hide_text=True)(
                 [
                     "zenity",
                     "--question",

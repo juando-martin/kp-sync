@@ -32,7 +32,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from kp_sync.lock import LockTimeout, acquire_lock
-from kp_sync.log import detail, info
+from kp_sync.log import detail, info, logged
 from kp_sync.paths import ensure_private_directory
 
 TRANSPORTS = ("cli", "auto")
@@ -268,7 +268,7 @@ class RcloneDaemon:
             elif self.rclone_config is not None:
                 argv += ["--config", self.rclone_config]
             try:
-                self.process = self._popen(
+                self.process = logged(self._popen)(
                     argv,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,

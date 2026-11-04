@@ -18,6 +18,7 @@ from kp_sync.daemon.protocol import (
 )
 from kp_sync.paths import ensure_run_dir
 from kp_sync.ui.factory import create_ui
+from kp_sync.log import logged
 
 
 class ClientError(RuntimeError):
@@ -81,7 +82,7 @@ class Client:
             else "kp-sync.socket"
         )
         try:
-            result = subprocess.run(
+            result = logged(subprocess.run)(
                 ["systemctl", "--user", "start", unit],
                 capture_output=True,
                 text=True,
@@ -124,7 +125,7 @@ class Client:
                     "daemon log must be a regular user-owned file"
                 )
             os.fchmod(output.fileno(), 0o600)
-            subprocess.Popen(
+            logged(subprocess.Popen)(
                 argv,
                 stdin=subprocess.DEVNULL,
                 stdout=output,
