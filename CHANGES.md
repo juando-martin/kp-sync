@@ -3,6 +3,16 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Documentation
+
+- The `kp-sync(1)` and `kp-sync-config(5)` man pages now describe every
+  command, option and configuration key with its type, default and the
+  meaning of each accepted value. `kp-sync(1)` adds the missing
+  `repair-history` and `sftp-serve` commands, the copy states printed by
+  `sync`, and environment and file details.
+
 ## 0.3.1 (2026-11-04)
 
 ### Changed
