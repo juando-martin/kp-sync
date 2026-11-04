@@ -704,9 +704,9 @@ def _dispatch(parser: argparse.ArgumentParser, args) -> int:
                         config, directory=run_directory
                     ).request("status", activate=False)
                 except DaemonUnavailable:
-                    from kp_sync.log import detail
+                    from kp_sync.log import info
 
-                    detail("daemon is not running; reporting cached status")
+                    info("daemon is not running; reporting cached status")
                     result_dict = result.to_dict()
             else:
                 result_dict = result.to_dict()

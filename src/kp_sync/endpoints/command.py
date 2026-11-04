@@ -73,7 +73,7 @@ class CommandEndpoint(Endpoint):
             EndpointUnavailable: If the command fails or output is bad.
         """
         target = Path(destination)
-        self._run(self.fetch_command, target)
+        self._run(self.fetch_command, target, operation="fetch")
         try:
             metadata = target.lstat()
             if not stat.S_ISREG(metadata.st_mode):
@@ -98,7 +98,7 @@ class CommandEndpoint(Endpoint):
         """
         if self.readonly:
             raise PermissionError(f"endpoint {self.name} is read-only")
-        self._run(self.store_command, Path(source))
+        self._run(self.store_command, Path(source), operation="store")
 
     def probe(self) -> EndpointFingerprint | None:
         """Run the optional probe command and capture its output token.
@@ -114,7 +114,7 @@ class CommandEndpoint(Endpoint):
             return None
         if any("{file}" in arg for arg in self.probe_command):
             raise ValueError("probe command cannot use a {file} placeholder")
-        result = self._execute(self.probe_command)
+        result = self._execute(self.probe_command, operation="probe")
         token = result.stdout.strip()
         if not token:
             raise EndpointUnavailable(
@@ -124,21 +124,19 @@ class CommandEndpoint(Endpoint):
             None, token=token, token_is_content=self.probe_is_content_hash
         )
 
-    def _run(self, command: tuple[str, ...], file_path: Path) -> None:
-        self._execute(command, file_path=file_path)
+    def _run(
+        self, command: tuple[str, ...], file_path: Path, *, operation: str
+    ) -> None:
+        self._execute(command, file_path=file_path, operation=operation)
 
     def _execute(
         self,
         command: tuple[str, ...],
         *,
         file_path: Path | None = None,
+        operation: str,
     ) -> subprocess.CompletedProcess[str]:
         argv = [arg.replace("{file}", str(file_path)) for arg in command]
-        operation = (
-            "fetch"
-            if command is self.fetch_command
-            else "store" if command is self.store_command else "probe"
-        )
         started = time.monotonic()
         outcome = "failed"
         try:

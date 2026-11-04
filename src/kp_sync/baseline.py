@@ -487,7 +487,7 @@ class BaselineManager:
                 try:
                     found = store.fetch(f"bases/{sha}.kdbx", downloaded)
                 except EndpointUnavailable as exc:
-                    detail(f"base {sha} unavailable from {store.name}: {exc}")
+                    info(f"base {sha} unavailable from {store.name}: {exc}")
                     continue
                 if not found:
                     continue
@@ -675,7 +675,7 @@ class BaselineManager:
                         store, [f"{sha}.kdbx" for sha in remaining], directory
                     )
                 except EndpointUnavailable as exc:
-                    detail(f"bases unavailable from {store.name}: {exc}")
+                    info(f"bases unavailable from {store.name}: {exc}")
                     continue
                 for sha in list(remaining):
                     if f"{sha}.kdbx" not in found:

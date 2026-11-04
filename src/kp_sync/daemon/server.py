@@ -650,19 +650,15 @@ class Controller:
                     queued.pop("ui", None)
                     if "ui" in request:
                         queued["ui"] = request["ui"]
-                debug("sync request joined the already queued run")
-                return self.queued_sync
-            future = concurrent.futures.Future()
-            self.queued_sync = future
-            self.queued_request = request
-            debug(
-                "sync queued"
-                + (
-                    f" for {request['command']}"
-                    if "command" in request
-                    else ""
-                )
-            )
+                joined = self.queued_sync
+            else:
+                joined = None
+                future = concurrent.futures.Future()
+                self.queued_sync = future
+                self.queued_request = request
+        if joined is not None:
+            debug("sync request joined the already queued run")
+            return joined
 
         def execute():
             try:
@@ -674,6 +670,10 @@ class Controller:
                 future.set_exception(exc)
 
         task = self.pool.submit(execute)
+        debug(
+            "sync queued"
+            + (f" for {request['command']}" if "command" in request else "")
+        )
 
         def cancelled(done):
             if done.cancelled():

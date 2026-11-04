@@ -59,6 +59,28 @@ class LevelTest(unittest.TestCase):
                 self.assertEqual(log.debug_enabled(), expected)
 
 
+class WriteFailureTest(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(log.restore_settings, log.settings())
+        log.configure(debug=True, environ={})
+
+    def test_failed_writes_never_reach_the_caller(self):
+        class Broken(io.StringIO):
+            def write(self, _):
+                raise OSError(28, "No space left on device")
+
+        with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
+            log.set_log_file(Path(tmp) / "log")
+            self.addCleanup(log.set_log_file, None)
+            with (
+                patch.object(log, "_log_file", Broken()),
+                contextlib.redirect_stderr(Broken()),
+            ):
+                log.debug("kept going")
+                log.info("kept going")
+                log.error("kept going")
+
+
 class CliLoggingTest(unittest.TestCase):
     def setUp(self):
         self.addCleanup(log.restore_settings, log.settings())
@@ -140,6 +162,24 @@ class DebugContentTest(unittest.TestCase):
                 self.assertRaises(EndpointUnavailable),
             ):
                 endpoint.fetch(Path(tmp) / "copy")
+            stream_ok = io.StringIO()
+            source = Path(tmp) / "source"
+            source.write_bytes(b"x")
+            ok = CommandEndpoint(
+                "nas",
+                ["true", "{file}"],
+                ["true", "{file}"],
+                probe=["echo", "token"],
+            )
+            with contextlib.redirect_stderr(stream_ok):
+                ok.store(source)
+                ok.probe()
+        self.assertRegex(
+            stream_ok.getvalue(), r"command store for nas: [0-9.]+s \(ok\)"
+        )
+        self.assertRegex(
+            stream_ok.getvalue(), r"command probe for nas: [0-9.]+s \(ok\)"
+        )
         output = stream.getvalue()
         self.assertRegex(output, r"DEBUG: command fetch for nas: [0-9.]+s")
         self.assertIn("(failed)", output)

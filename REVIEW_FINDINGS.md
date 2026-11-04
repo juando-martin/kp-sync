@@ -34,6 +34,19 @@ The decisions are in `design/history-and-sync.md` ("Sync algorithm"
 step 2 and "Save") and `design/endpoints-and-access.md` ("Optional rcd
 transport"); No findings remain open.
 
+## Open findings
+
+- **T1 (confirmed, test only): intermittent
+  `test_foreign_stale_cache_edits_preserve_new_entries`.** Found on
+  2026-11-04 while checking the logging review fixes; it fails about 3 in
+  20 runs on `65771de` (before the logging work) and after it alike. The
+  test sets entry A's modification time to the current whole second and
+  expects the stale-cache rule to keep that phone edit because it is
+  newer than the recorded version; when both fall in the same second the
+  edit can count as old. Make the test's timestamps unambiguous (for
+  example the version clearly older than the edit) rather than relaxing
+  the engine rule, after confirming that is the cause.
+
 ## Scope
 
 Read closely (at `db06c97`, re-checked at `v0.2.0`): file and drive

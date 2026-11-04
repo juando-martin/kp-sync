@@ -117,11 +117,20 @@ def set_log_file(path: Path | None) -> None:
 
 
 def _write(message: str, stream: TextIO | None) -> None:
-    print(message, file=sys.stderr if stream is None else stream)
+    # Logging must never fail its caller: a full log file or a closed
+    # stderr would otherwise abort work midway (for example after the
+    # daemon has queued a sync but before it runs).
+    try:
+        print(message, file=sys.stderr if stream is None else stream)
+    except (OSError, ValueError):
+        pass
     if stream is None:
         with _log_lock:
             if _log_file is not None:
-                print(message, file=_log_file)
+                try:
+                    print(message, file=_log_file)
+                except (OSError, ValueError):
+                    pass
 
 
 def info(message: str, *, stream: TextIO | None = None) -> None:

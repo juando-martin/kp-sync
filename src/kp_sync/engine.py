@@ -320,16 +320,20 @@ class SyncEngine:
                         )
                         return result
                     except (_RestartSync, BaselineChanged) as exc:
+                        limit = self.config.sync["max_restarts"]
                         debug(
                             (
                                 f"shared history changed during the run: {exc}"
                                 if isinstance(exc, BaselineChanged)
                                 else "a copy changed during the run"
                             )
-                            + f"; restart {attempt + 1} of "
-                            f"{self.config.sync['max_restarts']}"
+                            + (
+                                f"; restart {attempt + 1} of {limit}"
+                                if attempt < limit
+                                else f"; restart limit of {limit} reached"
+                            )
                         )
-                        if attempt >= self.config.sync["max_restarts"]:
+                        if attempt >= limit:
                             raise SyncError(
                                 "copies kept changing during sync; "
                                 "restart limit reached"
@@ -2219,9 +2223,9 @@ class SyncEngine:
         try:
             return self.credentials.cached_password()
         except CredentialError as exc:
-            from kp_sync.log import detail
+            from kp_sync.log import info
 
-            detail(
+            info(
                 "cached password is unavailable for optional content "
                 f"hashing: {exc}"
             )

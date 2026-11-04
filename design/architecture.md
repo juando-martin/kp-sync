@@ -201,7 +201,10 @@ Status: design only. Implementation is a later phase.
   written. Routine diagnostics (rclone timings, credential-copy and rcd
   housekeeping, fallbacks such as a private daemon start) keep the
   `INFO:` prefix but are hidden when a user command writes to a terminal,
-  unless `--verbose` or `--debug` is given. The daemon, `service-run`,
+  unless `--verbose` or `--debug` is given. A message that reports a
+  caught failure and its reason stays always visible, since it may be
+  the only explanation of a degraded result. Writing a message never
+  raises: a full log file or closed stderr must not abort the work. The daemon, `service-run`,
   `sftp-serve`, `access-op` and `drive-sync` (and the command a hook
   submits) never hide them, since udevmon, kp-access-owner and the
   journal re-log them; non-terminal callers keep them too. `--debug` or
