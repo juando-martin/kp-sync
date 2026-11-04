@@ -785,6 +785,15 @@ class MergeTest(unittest.TestCase):
             recorded.add_entry(
                 recorded.root_group, "A", "user", "old-password"
             )
+            # Back-date A so the later edit is clearly newer: both
+            # times are whole seconds and could fall in the same one.
+            hour_ago = recorded._encode_time(
+                datetime.now(timezone.utc) - timedelta(hours=1)
+            )
+            for name in ("LastModificationTime", "LocationChanged"):
+                recorded.entries[0]._element.find(
+                    f"Times/{name}"
+                ).text = hour_ago
             recorded.save()
             shutil.copyfile(recorded_path, incoming_path)
 

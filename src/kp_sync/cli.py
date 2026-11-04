@@ -350,6 +350,24 @@ def _configure_logging(args) -> None:
     )
 
 
+def _note_daemon_debug(args) -> None:
+    """Say that --debug does not reach the daemon doing the work."""
+    from kp_sync import log
+
+    if not log.debug_enabled():
+        return
+    alternatives = (
+        "use --no-daemon, or debug the daemon"
+        if args.command in {"sync", "resolve", "restore"}
+        else "debug the daemon"
+    )
+    log.debug(
+        f"{args.command} runs in the daemon, which this --debug does not "
+        f"reach; {alternatives} (kp-sync daemon --debug, or "
+        "KP_SYNC_DEBUG=1 on its unit; see kp-sync(1))"
+    )
+
+
 def _stderr_is_terminal() -> bool:
     try:
         return sys.stderr.isatty()
@@ -468,6 +486,7 @@ def _dispatch(parser: argparse.ArgumentParser, args) -> int:
                     sys.stdin.isatty()
                     or getattr(args, "raise_existing", False)
                 )
+            _note_daemon_debug(args)
             result = Client(config).request(
                 args.command,
                 wait=not (

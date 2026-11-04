@@ -221,7 +221,8 @@ Status: design only. Implementation is a later phase.
   replaces `KEEPASSDB_DEBUG`. Logging never carries passwords, stdin or
   command output, so secrets belong in files or stdin, never in
   configured arguments. A client's
-  `--debug` does not reach the daemon; debug a daemon by running
+  `--debug` does not reach the daemon (the client prints a `DEBUG:` note
+  saying so before a daemon request); debug a daemon by running
   `kp-sync daemon --debug` with the service stopped, or by setting
   `KP_SYNC_DEBUG=1` on its unit. `daemon --foreground` is accepted for
   compatibility and the client's fallback start: the daemon never
