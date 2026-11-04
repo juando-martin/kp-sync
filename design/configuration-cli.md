@@ -30,6 +30,10 @@ Searched at `~/.config/kp-sync/config.toml` (overridable with `--config` or
   "Sync algorithm", step 2). Without it, the copy is fetched every run.
   `rclone` endpoints do not accept it; their listing qualifies by
   itself when it includes SHA-256, SHA-1 or MD5.
+  `rclone_transport` (`rclone` only): `"cli"` (default) runs rclone
+  commands; `"auto"` uses the daemon's persistent `rclone rcd` when this
+  rclone supports it (1.61+) and commands otherwise (see "Optional rcd
+  transport" in the endpoints chapter).
 - `[sessions]`: `enabled`, `mount_dir` (remote default `~/kp`),
   `tunnel_port` (default 2222; the remote end of the reverse tunnel, so
   one session per remote host at a time: a port already in use there

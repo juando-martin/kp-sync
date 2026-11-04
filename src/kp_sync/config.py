@@ -99,6 +99,7 @@ _ENDPOINT_KEYS = {
     "upload",
     "probe",
     "probe_is_content_hash",
+    "rclone_transport",
     "fetch",
     "store",
 }
@@ -131,6 +132,7 @@ class EndpointConfig:
     upload: tuple[str, ...] | None = None
     probe: tuple[str, ...] | None = None
     probe_is_content_hash: bool = False
+    rclone_transport: str = "cli"
     fetch: tuple[str, ...] | None = None
     store: tuple[str, ...] | None = None
 
@@ -274,6 +276,7 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
             "timeout": float,
             "foreign_writers": bool,
             "probe_is_content_hash": bool,
+            "rclone_transport": str,
             "source": str,
             "identity": str,
             "remote": str,
@@ -303,7 +306,14 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
     type_keys = {
         "file": {"path", "source"},
         "command": {"fetch", "store", "probe", "probe_is_content_hash"},
-        "rclone": {"remote", "rclone_config", "download", "upload", "probe"},
+        "rclone": {
+            "remote",
+            "rclone_config",
+            "download",
+            "upload",
+            "probe",
+            "rclone_transport",
+        },
     }
     invalid = set(value) - common_keys - type_keys[endpoint_type]
     if invalid:
@@ -356,6 +366,10 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
             )
         fetch = None
         store = None
+        if value.get("rclone_transport", "cli") not in {"cli", "auto"}:
+            raise ConfigError(
+                f"endpoints[{index}].rclone_transport must be cli or auto"
+            )
 
     return EndpointConfig(
         name=name,
@@ -398,6 +412,7 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
             else None
         ),
         probe_is_content_hash=value.get("probe_is_content_hash", False),
+        rclone_transport=value.get("rclone_transport", "cli"),
         fetch=(
             _command(value["fetch"], f"endpoints[{index}].fetch")
             if endpoint_type == "command"

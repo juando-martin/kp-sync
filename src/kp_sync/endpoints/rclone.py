@@ -60,6 +60,7 @@ class RcloneEndpoint(Endpoint):
         identity: str | None = None,
         runner: Callable | None = None,
         credentials=None,
+        transport=None,
         **kwargs,
     ) -> None:
         """Configure the remote root, commands, and listing cache.
@@ -78,6 +79,10 @@ class RcloneEndpoint(Endpoint):
             credentials: Optional ``RcloneCredentials``; rclone then
                 uses its private copy, and the endpoint is unavailable
                 without one.
+            transport: Optional ``kp_sync.rclone_rcd.RcloneDaemon``.
+                Generated commands then go through its ``rclone rcd``
+                while it is ready; custom and batch commands, and every
+                call while it is not ready, run as commands.
             **kwargs: Policy options accepted by ``Endpoint``.
 
         Raises:
@@ -92,6 +97,7 @@ class RcloneEndpoint(Endpoint):
             str(rclone_config) if rclone_config is not None else None
         )
         self.credentials = credentials
+        self.transport = transport
         self._runner = runner if runner is not None else subprocess.run
         self.database_remote = self.remote_path(database_name)
         self.database_relative = str(PurePosixPath(database_name))
@@ -118,11 +124,16 @@ class RcloneEndpoint(Endpoint):
     def begin_run(self) -> None:
         """Import changed external credentials before rclone calls."""
         if self.credentials is not None:
+            if self.transport is not None and self.credentials.import_due():
+                # The rcd holds the copy and its lock; it has no reload.
+                self.transport.stop()
             self.credentials.refresh()
 
     def end_run(self) -> None:
         """Drop drained credentials once the run is done."""
         if self.credentials is not None:
+            if self.transport is not None and self.credentials.drain_due():
+                self.transport.stop()
             self.credentials.finish()
 
     @staticmethod
@@ -172,12 +183,57 @@ class RcloneEndpoint(Endpoint):
         return f"{self.root}{separator}{path}"
 
     def _execute(self, command: Sequence[str]) -> subprocess.CompletedProcess:
+        if self.transport is not None:
+            result = self._execute_rcd(command)
+            if result is not None:
+                return result
         if self.credentials is None:
             return self._execute_with(command, self.rclone_config)
         # The shared lock keeps imports and drains out while rclone,
         # which may write refreshed tokens back, uses the copy.
         with self.credentials.in_use() as config:
             return self._execute_with(command, config)
+
+    def _execute_rcd(
+        self, command: Sequence[str]
+    ) -> subprocess.CompletedProcess | None:
+        """Run a generated command through the rcd, if it is ready.
+
+        Returns ``None`` when the command must run as a process instead:
+        it is not a generated shape, the rcd is not ready, or it could
+        not be reached before anything was requested. Failures after a
+        request are raised like failed commands.
+        """
+        from kp_sync import rclone_rcd
+
+        argv = list(command)
+        request = rclone_rcd.translate(argv, self.root)
+        if request is None or not self.transport.ready():
+            return None
+        started = time.monotonic()
+        outcome = "failed"
+        try:
+            stdout = request(self.transport, self.timeout)
+            outcome = "ok"
+        except rclone_rcd.RcdUnreachable:
+            outcome = "unreachable; using a command"
+            return None
+        except rclone_rcd.RcdTimeout as exc:
+            raise EndpointUnavailable(
+                f"{self.name}: rcd request timed out after "
+                f"{self.timeout} seconds"
+            ) from exc
+        except rclone_rcd.RcdError as exc:
+            # Same exceptions as a failed command, so the engine's
+            # retry and restart rules apply unchanged.
+            error = EndpointMissing if exc.missing else EndpointUnavailable
+            raise error(f"{self.name}: rcd request failed") from exc
+        finally:
+            info(
+                f"rclone {argv[1]} for {self.name} via rcd: "
+                f"{time.monotonic() - started:.3f}s ({outcome})"
+            )
+        return subprocess.CompletedProcess(argv, 0, stdout, "")
 
     def _execute_with(
         self, command: Sequence[str], config: str | None

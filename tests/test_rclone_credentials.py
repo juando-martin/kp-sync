@@ -251,10 +251,28 @@ class RcloneCredentialsLockTest(CredentialsFixture, unittest.TestCase):
         with self.assertRaisesRegex(CredentialsUnavailable, "being updated"):
             self.endpoint.probe()
         self.assertEqual(self.runner.calls, [])
+        # Nothing to import needs no lock; a real import waits for it.
+        self.assertTrue(self.creds.refresh())
+        self.publish(b"[GoogleDrive]\ntoken=2\n")
         self.assertFalse(self.creds.refresh())
+        self.assertIn(b"token=1", self.creds.path.read_bytes())
         holder.release()
         self.endpoint.probe()
         self.assertEqual(len(self.runner.calls), 1)
+
+    def test_unchanged_refresh_does_not_wait_for_a_shared_holder(self):
+        self.publish()
+        self.creds.refresh()
+        self.assertFalse(self.creds.import_due())
+        self.hold(shared=True)
+        with patch("kp_sync.rclone_credentials.file_lock") as lock:
+            self.assertTrue(self.creds.refresh())
+        lock.assert_not_called()
+        self.publish(b"[GoogleDrive]\ntoken=2\n")
+        self.assertTrue(self.creds.import_due())
+        self.external.unlink()
+        self.assertFalse(self.creds.import_due())
+        self.assertTrue(self.creds.drain_due())
 
     def test_parallel_rclone_runs_share_the_lock(self):
         self.publish()

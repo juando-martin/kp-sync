@@ -20,27 +20,19 @@ Round 1 (F1–F3) shipped as `v0.2.1`. Remaining rounds, each on its own
 branch with tests, committed locally and pushed only when work moves to
 `alpha`:
 
-F4, F6, F7, F8, F9 and F10 are fixed on `main` (unreleased, not pushed);
-F5 is fixed on branch `f5-probe-content-hash` (not merged);
-upgrading Black in `alpha`'s tools environment (F7) is a package install
+F4, F6, F7, F8, F9 and F10 are fixed on `main` (unreleased, not pushed).
+Upgrading Black in `alpha`'s tools environment (F7) is a package install
 and needs its own approval there. Acceptance beyond unit tests needs the
 `kp-test` profile; installing kp-sync or units on `beta` needs owner
 approval, otherwise use `--no-daemon` runs from the checkout.
 
-Remaining, approved on 2026-11-04 for an unattended run (see "Unattended
-run" in NEXT_STEPS.md), in this order:
-
-1. **F5**: done on `f5-probe-content-hash` (see
-   `design/history-and-sync.md`, "Sync algorithm" step 2).
-2. **F11, part 1**: done on `f11-batch-bases` (see
-   `design/history-and-sync.md`, "Save").
-3. **F11, part 2**, own branch on top of part 1: the optional `rcd`
-   transport as designed below, with `rclone_transport = "cli"` as the
-   default and `"auto"` opt-in until it is tested on `alpha`. Open points
-   are decided conservatively: an `rcd` failure is handled exactly like a
-   failed rclone command (same exceptions, so the existing
-   retry/restart rules apply), each operation uses the endpoint's
-   `timeout`, and the decision is recorded in the owning design chapter.
+F5 and F11 were done in the unattended run of 2026-11-04, each on its own
+unmerged branch, stacked in this order: `f5-probe-content-hash`,
+`f11-batch-bases` (part 1, batched base transfers) and
+`f11-rcd-transport` (part 2, the optional `rcd` transport, default off).
+The decisions are in `design/history-and-sync.md` ("Sync algorithm"
+step 2 and "Save") and `design/endpoints-and-access.md` ("Optional rcd
+transport"); the owner reviews and says "merge". No findings remain open.
 
 ## Scope
 
@@ -63,73 +55,6 @@ the UI modules.
 F1–F3 (test isolation: real daemon socket, checkout-location and umask
 dependence, KeePassXC 2.7 `import`) were fixed on `fix-test-isolation`;
 the full suite (443 tests) then passed on `beta`.
-
-## Efficiency
-
-### F11. One rclone call per file dominates cloud history time (proposal)
-
-Each base upload, download and delete is its own rclone call, and the
-cost is per call, not per byte. Measured on `beta` against
-`GoogleDrive:kp-tests` (rclone 1.60.1, 2026-11-03, read-only downloads
-of 4–6 KB files):
-
-| Operation | Time |
-|---|---|
-| rclone process start without network | 0.03 s |
-| one `copyto` from `kp-test-history/bases/` | 4.0 s |
-| three files, three `copyto` calls | 12.0 s |
-| three files, one `copy --files-from-raw --no-traverse` call | 2.4 s |
-| per-run `lsjson --hash` listing (today) | 1.1 s |
-| persistent `rclone rcd`: listing / one download / three downloads | 0.27 / 0.9 / 2.9 s |
-
-The time is Drive authentication and path lookups per call, not process
-start. A commit currently makes about eight sequential `copyto` calls at
-3–4 s each (daemon logs, F9 live test).
-
-Proposal: batch content-addressed base uploads, downloads and deletes of
-one run into one rclone call each (`copy`/`delete --files-from-raw`).
-Keep `state.json` and the database as separate in-place `copyto` writes:
-their order (bases before state) and the shared-state re-checks between
-them are safety rules. Batching comes first; it works on rclone 1.60.1.
-
-Optional fast transport (owner agreed the design on 2026-11-03; approved
-for implementation on 2026-11-04, see "Agreed order of work"): a
-persistent `rclone rcd`, used only when available and plain rclone calls
-otherwise.
-
-- *Requirement.* `rcd` listens on a Unix socket only from rclone 1.61
-  (verified: 1.60.1 fails with `listen tcp: … unknown port` although its
-  man page documents it). The socket lives in the profile run dir (0700),
-  so access is limited to the user, as with the private config copy;
-  `rcd` then runs with `--rc-no-auth` (see below). No loopback TCP
-  fallback.
-- *Selection.* Probe by starting `rcd` on the socket and checking that it
-  answers, not by parsing versions. Setting such as
-  `rclone_transport = "auto" | "cli"`; endpoints with custom
-  `download`/`upload`/`probe` commands always use them.
-- *Credentials (F8).* `rcd` reads its `--config` once, keeps credentials
-  in memory, rewrites (and recreates) the file on token refresh and has
-  no reload call. It therefore holds `rclone-credentials.lock` shared for
-  its whole lifetime: import and drain stop it first, take the lock
-  exclusive, then restart it if credentials remain. The daemon owns it
-  and stops it on drain and idle exit; other processes use its socket
-  when healthy and plain rclone (same shared lock) otherwise.
-- *Verified on `beta` with rclone 1.75.2 (2026-11-04,
-  `GoogleDrive:kp-tests`).* `rcd --rc-addr unix://…` works; the socket is
-  created 0775, so it must live in a 0700 directory. Contrary to the man
-  page, the socket does not bypass rc authentication for `operations/*`
-  (HTTP 403) unless `--rc-no-auth` is set, which is acceptable only on
-  such a private socket. One `operations/list` with `_filter` include
-  rules, `recurse` and `showHash` returns exactly kp-sync's per-run
-  listing (database, `state.json`, bases) with MD5, SHA-1 and SHA-256.
-  `operations/copyfile` uploads update the Drive file in place (same file
-  ID, like `copyto`, so revision history is kept). The socket is removed
-  when `rcd` stops. Still open: per-operation timeouts and mapping a
-  half-done `rcd` operation onto the retry/restart rules.
-- *Measured gain (rclone 1.75.2).* Filtered recursive listing 1.84 s
-  (CLI) → 1.09 s (`rcd`, after a 1.8 s first call); database download
-  2.70 s → 1.02 s; in-place upload via `rcd` 1.74 s. Listing gains less
-  than the earlier non-recursive 0.27 s because Drive lists each folder.
 
 ## Reviewed without findings
 

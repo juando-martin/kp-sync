@@ -5,6 +5,15 @@ hold the details; design decisions live in the `design/` chapters.
 
 ## Unreleased
 
+### Added
+
+- Optional `rclone_transport = "auto"` on an `rclone` endpoint: the
+  daemon keeps a persistent `rclone rcd` on a private socket, so cloud
+  calls skip repeated authentication (about 1 s instead of 2–4 s per call
+  on Google Drive). It needs rclone 1.61 or later; older rclone, other
+  processes when the daemon is not running and custom commands keep
+  using plain rclone commands. The default stays `"cli"`.
+
 ### Changed
 
 - Cloud history is faster to publish: all history copies (bases) a sync

@@ -103,6 +103,26 @@ class RcloneCredentials:
         """Return whether a private copy exists."""
         return os.path.lexists(self.path)
 
+    def import_due(self) -> bool:
+        """Return whether :meth:`refresh` has something to import.
+
+        A usable external file whose digest differs from the imported
+        one, or that has no copy yet. Checked without the lock; the
+        import re-checks under it.
+        """
+        digest = self._external_digest()
+        if digest is None:
+            return False
+        try:
+            recorded = self._source.read_text().strip()
+        except OSError:
+            recorded = ""
+        return not self.copy_exists() or recorded != digest
+
+    def drain_due(self) -> bool:
+        """Return whether :meth:`finish` would remove the copy."""
+        return not self.external_present() and self.copy_exists()
+
     def refresh(self, *, wait: bool = True) -> bool:
         """Import a new or changed external file.
 
@@ -111,7 +131,11 @@ class RcloneCredentials:
         over the new copy. A missing external file leaves any copy;
         :meth:`finish` drains it. Returns ``False`` when the lock stayed
         busy; the current copy is then kept and a later run imports.
+        Nothing to import takes no lock, so a running ``rclone rcd``
+        (which holds it shared) does not delay every run.
         """
+        if not self.import_due():
+            return True
         try:
             with self._lock(wait=wait):
                 self._refresh_locked()

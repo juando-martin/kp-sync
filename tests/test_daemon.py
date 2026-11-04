@@ -1653,7 +1653,14 @@ class DaemonTest(unittest.TestCase):
         handle = RcloneCredentials("cloud", external, controller.directory)
         controller.credentials = [handle]
         handle.refresh()
+        events = []
+        controller.rclone_daemons = {
+            "cloud": Mock(stop=lambda: events.append("stop"))
+        }
+        discard = handle.discard
+        handle.discard = lambda **kw: events.append("discard") or discard(**kw)
         controller._cleanup_runtime()
+        self.assertEqual(events, ["stop", "discard"])
         self.assertFalse(handle.copy_exists())
         self.assertEqual(external.read_text(), "synthetic config only")
 
@@ -1692,6 +1699,77 @@ class DaemonTest(unittest.TestCase):
             self.assertTrue(handle.copy_exists())
         controller._watch_credentials()
         self.assertFalse(handle.copy_exists())
+
+    def test_rcd_is_stopped_before_its_credentials_are_drained(self):
+        from kp_sync.rclone_credentials import RcloneCredentials
+
+        controller = self.controller()
+        external = self.root / "provider" / "rclone.conf"
+        external.parent.mkdir()
+        external.write_text("v1")
+        handle = RcloneCredentials("cloud", external, controller.directory)
+        controller.credentials = [handle]
+        handle.refresh()
+        events = []
+        controller.rclone_daemons = {
+            "cloud": Mock(stop=lambda: events.append("stop cloud")),
+            "other": Mock(stop=lambda: events.append("stop other")),
+        }
+        finish = handle.finish
+        handle.finish = lambda **kw: events.append("finish") or finish(**kw)
+        controller._watch_credentials()
+        self.assertEqual(events, [])
+        external.unlink()
+        controller._watch_credentials()
+        self.assertEqual(events, ["stop cloud", "finish"])
+        self.assertFalse(handle.copy_exists())
+
+    def test_close_stops_rcd_before_discarding_credentials(self):
+        from kp_sync.rclone_credentials import RcloneCredentials
+
+        controller = self.controller()
+        external = self.root / "provider" / "rclone.conf"
+        external.parent.mkdir()
+        external.write_text("v1")
+        handle = RcloneCredentials("cloud", external, controller.directory)
+        controller.credentials = [handle]
+        handle.refresh()
+        events = []
+        failing = Mock(stop=Mock(side_effect=RuntimeError("synthetic")))
+        controller.rclone_daemons = {
+            "broken": failing,
+            "cloud": Mock(stop=lambda: events.append("stop")),
+        }
+        discard = handle.discard
+        handle.discard = lambda **kw: events.append("discard") or discard(**kw)
+        controller.close()
+        self.assertEqual(events, ["stop", "discard"])
+        self.assertFalse(handle.copy_exists())
+
+    def test_daemon_engines_share_one_owned_rcd_per_auto_endpoint(self):
+        from dataclasses import replace
+
+        from kp_sync.config import EndpointConfig
+
+        config = replace(
+            self.config,
+            endpoints=(
+                EndpointConfig(
+                    "cloud", "rclone", remote="gd", rclone_transport="auto"
+                ),
+                EndpointConfig("plain", "rclone", remote="gd2"),
+            ),
+        )
+        controller = Controller(config)
+        self.addCleanup(controller.watch.close)
+        self.addCleanup(lambda: controller.pool.shutdown(wait=True))
+        self.addCleanup(lambda: controller.requests.shutdown(wait=True))
+        first = {e.name: e for e in controller._engine(NoneUI()).endpoints}
+        second = {e.name: e for e in controller._engine(NoneUI()).endpoints}
+        self.assertTrue(first["cloud"].transport.owner)
+        self.assertIs(first["cloud"].transport, second["cloud"].transport)
+        self.assertIsNone(first["plain"].transport)
+        self.assertEqual(set(controller.rclone_daemons), {"cloud"})
 
     def test_close_drops_private_copies_after_final_sync(self):
         from kp_sync.rclone_credentials import RcloneCredentials
