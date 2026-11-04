@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import sys
+import threading
 from collections.abc import Sequence
 
 import argcomplete
@@ -77,9 +78,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="run the engine directly instead of using the daemon",
     )
     parser.add_argument(
-        "--verbose", action="store_true", help="show informational logs"
+        "--verbose",
+        action="store_true",
+        help="show routine INFO messages on a terminal",
     )
-    parser.add_argument("--debug", action="store_true", help="show debug logs")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="show DEBUG messages explaining decisions (implies --verbose)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     for name, help_text in COMMANDS:
@@ -207,7 +214,10 @@ def _build_parser() -> argparse.ArgumentParser:
         elif name == "daemon":
             command_parser.add_argument("--foreground", action="store_true")
             command_parser.add_argument(
-                "--debug", action="store_true", default=argparse.SUPPRESS
+                "--debug",
+                action="store_true",
+                default=argparse.SUPPRESS,
+                help="show DEBUG messages explaining decisions",
             )
         elif name == "session":
             command_parser.add_argument(
@@ -317,6 +327,48 @@ def _service_name_completer(prefix, parsed_args, **_):
     return [name for name in services if name.startswith(prefix)]
 
 
+# Commands run by services, hooks and forced SSH commands. Their INFO
+# messages are re-logged by the caller, so they are never hidden.
+_LOGGING_COMMANDS = {
+    "daemon",
+    "service-run",
+    "sftp-serve",
+    "access-op",
+    "drive-sync",
+}
+
+
+def _configure_logging(args) -> None:
+    from kp_sync import log
+
+    log.configure(
+        verbose=args.verbose,
+        debug=args.debug,
+        interactive=(
+            args.command not in _LOGGING_COMMANDS and _stderr_is_terminal()
+        ),
+    )
+
+
+def _stderr_is_terminal() -> bool:
+    try:
+        return sys.stderr.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+_nested = threading.local()
+
+
+def _submit_nested(argv: Sequence[str]) -> int:
+    """Run a command submitted by a hook with the hook's logging."""
+    _nested.active = True
+    try:
+        return main(argv)
+    finally:
+        _nested.active = False
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse arguments and execute the selected command.
 
@@ -326,6 +378,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     argcomplete.autocomplete(parser, always_complete_options=False)
     args = parser.parse_args(argv)
+    if getattr(_nested, "active", False):
+        return _dispatch(parser, args)
+    from kp_sync import log
+
+    previous = log.settings()
+    _configure_logging(args)
+    try:
+        return _dispatch(parser, args)
+    finally:
+        log.restore_settings(previous)
+
+
+def _dispatch(parser: argparse.ArgumentParser, args) -> int:
     if args.command == "keepassxc-disconnect":
         try:
             from kp_sync.keepassxc import disconnect
@@ -350,7 +415,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.mountpoint,
                 profile=args.profile,
                 config=args.config,
-                submit=main,
+                submit=_submit_nested,
             )
         except (OSError, RuntimeError, ValueError) as exc:
             error(str(exc))
@@ -639,9 +704,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         config, directory=run_directory
                     ).request("status", activate=False)
                 except DaemonUnavailable:
-                    from kp_sync.log import info
+                    from kp_sync.log import detail
 
-                    info("daemon is not running; reporting cached status")
+                    detail("daemon is not running; reporting cached status")
                     result_dict = result.to_dict()
             else:
                 result_dict = result.to_dict()

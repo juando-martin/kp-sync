@@ -143,12 +143,43 @@ and
 .BR resolve .
 .TP
 .B \-\-verbose
-Accepted for compatibility. Informational
+Also show routine
 .B INFO:
-messages are currently always written to standard error.
+messages on a terminal: rclone timings, credential-copy and
+.B rclone rcd
+housekeeping, and fallbacks such as starting a private daemon. Without it,
+a command run from a terminal shows only results, warnings
+and errors. Messages are never hidden when standard error is not a
+terminal, nor for
+.BR daemon ,
+.BR access\-op ,
+.BR drive\-sync ,
+.B sftp\-serve
+and the internal service runner, whose output is collected by the journal,
+.B udevmon
+or
+.BR kp\-access\-owner .
 .TP
 .B \-\-debug
-Accepted for compatibility; currently adds no output.
+Show
+.B DEBUG:
+messages that explain decisions, and imply
+.BR \-\-verbose :
+how long the sync lock took to acquire, each copy's state with short
+observed and recorded hashes and how it was observed, restarts caused by
+copies changing during a run, the outcome, and the duration and result of
+configured commands and the
+.B keepassxc-cli
+check. Passwords, command argument lists and command output are never
+shown. It affects only the process it is given to: for
+daemon-backed commands most work happens in the daemon, so debug the
+daemon itself (see
+.B daemon
+and
+.BR KP_SYNC_DEBUG ),
+or use
+.B \-\-no\-daemon
+to run the engine in this process.
 .TP
 .B \-\-version
 Print the package version and exit without loading configuration or
@@ -497,10 +528,21 @@ use.
 .SS "Daemon and installation"
 .TP
 \fBdaemon\fR [\fB\-\-foreground\fR] [\fB\-\-debug\fR]
-Run the per-profile daemon in the foreground. Normally started by the
-systemd user service; run it by hand only for debugging, with the service
-stopped. Both options are accepted for compatibility and currently change
-nothing.
+Run the per-profile daemon. Normally started by the systemd user service;
+run it by hand only for debugging, with the service stopped. It always
+stays in the foreground and writes its messages to standard error.
+.RS
+.TP
+.B \-\-debug
+Also write
+.B DEBUG:
+messages, as the global option, including each request received (with its
+field names, not their values) and how synchronization requests are queued
+or joined.
+.TP
+.B \-\-foreground
+Accepted for compatibility; the daemon never detaches by itself.
+.RE
 .TP
 \fBservice\fR \fBstart\fR|\fBstop\fR|\fBrestart\fR|\fBstatus\fR \fBdaemon\fR
 Manage the installed daemon unit of the default profile, or of the profile
@@ -709,6 +751,33 @@ Location of the default hub and of all private runtime state. Required
 unless
 .B hub
 is configured.
+.TP
+.B KP_SYNC_DEBUG
+Any value other than empty,
+.BR 0 ,
+.BR false ,
+.B no
+or
+.B off
+enables
+.B \-\-debug
+for every kp-sync process that sees it. To debug the installed daemon, add
+it to the unit with
+.B systemctl \-\-user edit kp-sync.service
+(or
+.BR kp-sync@NAME.service
+for a profile):
+.RS
+.PP
+.nf
+[Service]
+Environment=KP_SYNC_DEBUG=1
+.fi
+.PP
+then restart the daemon and read the journal with
+.BR "journalctl \-\-user \-u kp-sync.service" .
+Remove the drop-in when done.
+.RE
 .TP
 .BR DISPLAY ", " WAYLAND_DISPLAY
 Select desktop dialogs in

@@ -594,7 +594,7 @@ class RcloneDaemonLifecycleTest(unittest.TestCase):
 
     def test_old_rclone_is_detected_once_and_commands_are_used(self):
         rcd = self.owner(FakeProcess(alive=False))
-        with patch("kp_sync.rclone_rcd.info") as logged:
+        with patch("kp_sync.rclone_rcd.detail") as logged:
             self.assertFalse(rcd.ready())
             self.assertFalse(rcd.ready())
         self.assertTrue(rcd.unsupported)

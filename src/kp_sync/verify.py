@@ -3,8 +3,10 @@
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
+import time
 
 from kp_sync.kdbx import KdbxError, KdbxInfo, inspect_kdbx
+from kp_sync.log import debug
 from kp_sync.ui.base import UI
 
 
@@ -163,6 +165,7 @@ def _verify_with_keepassxc(
     if key_file is not None:
         command.extend(["--key-file", str(key_file)])
     command.append(str(path))
+    started = time.monotonic()
     try:
         result = subprocess.run(
             command,
@@ -173,10 +176,18 @@ def _verify_with_keepassxc(
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
+        debug(
+            "keepassxc-cli db-info check: "
+            f"{time.monotonic() - started:.3f}s ({type(exc).__name__})"
+        )
         raise VerificationError(
             "KeePassXC compatibility verification failed: "
             f"{exc.__class__.__name__}"
         ) from exc
+    debug(
+        "keepassxc-cli db-info check: "
+        f"{time.monotonic() - started:.3f}s (exit {result.returncode})"
+    )
     if result.returncode != 0:
         raise VerificationError(
             f"KeePassXC rejected the candidate (exit {result.returncode})"

@@ -88,18 +88,18 @@ class Client:
                 timeout=10,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            from kp_sync.log import info
+            from kp_sync.log import detail
 
-            info(
+            detail(
                 f"systemd activation unavailable: {type(exc).__name__}; "
                 "starting private daemon"
             )
         else:
             if result.returncode == 0:
                 return
-            from kp_sync.log import info
+            from kp_sync.log import detail
 
-            info(
+            detail(
                 "systemd socket activation unavailable; "
                 "starting private daemon"
             )

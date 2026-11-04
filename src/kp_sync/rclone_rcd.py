@@ -32,7 +32,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from kp_sync.lock import LockTimeout, acquire_lock
-from kp_sync.log import info
+from kp_sync.log import detail, info
 from kp_sync.paths import ensure_private_directory
 
 TRANSPORTS = ("cli", "auto")
@@ -258,7 +258,7 @@ class RcloneDaemon:
         try:
             lock = self._lock_descriptor()
         except LockTimeout:
-            info(f"{self.name}: rclone config in use; rcd not started")
+            detail(f"{self.name}: rclone config in use; rcd not started")
             return False
         try:
             if self.credentials is not None:
@@ -290,7 +290,7 @@ class RcloneDaemon:
                 break
             if self.socket.exists() and self._answers():
                 os.chmod(directory, 0o700)
-                info(f"{self.name}: rclone rcd started")
+                detail(f"{self.name}: rclone rcd started")
                 return True
             self._sleep(POLL_INTERVAL)
         self._terminate()
@@ -299,7 +299,7 @@ class RcloneDaemon:
 
     def _unsupported(self, reason: str) -> None:
         self.unsupported = True
-        info(
+        detail(
             f"{self.name}: rclone rcd unavailable ({reason}); "
             "using rclone commands"
         )
@@ -318,7 +318,7 @@ class RcloneDaemon:
 
     def _reap(self) -> None:
         if self.process is not None and self.process.poll() is not None:
-            info(f"{self.name}: rclone rcd exited; restarting on demand")
+            detail(f"{self.name}: rclone rcd exited; restarting on demand")
             self.process = None
 
     def stop(self) -> None:
@@ -328,7 +328,7 @@ class RcloneDaemon:
                 return
             if self.process is not None:
                 self._terminate()
-                info(f"{self.name}: rclone rcd stopped")
+                detail(f"{self.name}: rclone rcd stopped")
 
     def _abandon(self, jobid: int) -> None:
         """Make sure a timed-out job can no longer write anything.

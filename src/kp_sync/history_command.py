@@ -51,9 +51,9 @@ def history_text(
     try:
         password = provider.cached_password()
     except CredentialError as exc:
-        from kp_sync.log import info
+        from kp_sync.log import detail
 
-        info(f"cached password is unavailable for history counts: {exc}")
+        detail(f"cached password is unavailable for history counts: {exc}")
         password = None
     key_file = config.key_file if config.key_file.is_file() else None
     lines = ["Retained versions:"]

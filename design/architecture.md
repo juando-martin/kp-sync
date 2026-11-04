@@ -197,7 +197,27 @@ Status: design only. Implementation is a later phase.
   pending or an endpoint was skipped; without a display, only the log and
   `status`.
 - Logging: stderr (terminal clients), the journal (daemon), plus `log` in
-  the run dir; `--debug` replaces `KEEPASSDB_DEBUG`.
+  the run dir. `INFO:` outcomes, warnings and `ERROR:` problems are always
+  written. Routine diagnostics (rclone timings, credential-copy and rcd
+  housekeeping, fallbacks such as a private daemon start) keep the
+  `INFO:` prefix but are hidden when a user command writes to a terminal,
+  unless `--verbose` or `--debug` is given. The daemon, `service-run`,
+  `sftp-serve`, `access-op` and `drive-sync` (and the command a hook
+  submits) never hide them, since udevmon, kp-access-owner and the
+  journal re-log them; non-terminal callers keep them too. `--debug` or
+  `KP_SYNC_DEBUG` (any value but empty, `0`, `false`, `no`, `off`) adds
+  `DEBUG:` lines that explain decisions: sync lock waits, each copy's
+  state with short observed/recorded hashes and how it was observed,
+  restarts, the outcome, daemon requests (field names only) and sync
+  queueing, and the duration/result of configured commands and the
+  `keepassxc-cli` check. It replaces `KEEPASSDB_DEBUG`. Debug output,
+  like all logging, never carries passwords, command argument lists or
+  command output (configured commands may hold user secrets). A client's
+  `--debug` does not reach the daemon; debug a daemon by running
+  `kp-sync daemon --debug` with the service stopped, or by setting
+  `KP_SYNC_DEBUG=1` on its unit. `daemon --foreground` is accepted for
+  compatibility and the client's fallback start: the daemon never
+  detaches by itself.
 - `--dry-run` on `sync` (and `status`) performs steps 1 to 3 only.
 
 ## Feature parity with the replaced scripts

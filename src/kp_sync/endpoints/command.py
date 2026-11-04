@@ -3,6 +3,7 @@
 import os
 import stat
 import subprocess
+import time
 from pathlib import Path
 from typing import Sequence
 
@@ -11,6 +12,7 @@ from kp_sync.endpoints.base import (
     EndpointFingerprint,
     EndpointUnavailable,
 )
+from kp_sync.log import debug
 
 
 class CommandEndpoint(Endpoint):
@@ -132,14 +134,23 @@ class CommandEndpoint(Endpoint):
         file_path: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
         argv = [arg.replace("{file}", str(file_path)) for arg in command]
+        operation = (
+            "fetch"
+            if command is self.fetch_command
+            else "store" if command is self.store_command else "probe"
+        )
+        started = time.monotonic()
+        outcome = "failed"
         try:
-            return subprocess.run(
+            result = subprocess.run(
                 argv,
                 check=True,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
             )
+            outcome = "ok"
+            return result
         except (OSError, subprocess.SubprocessError) as exc:
             if isinstance(exc, subprocess.CalledProcessError):
                 detail = f" (exit status {exc.returncode})"
@@ -152,3 +163,10 @@ class CommandEndpoint(Endpoint):
             raise EndpointUnavailable(
                 f"{self.name}: command failed{detail}"
             ) from exc
+        finally:
+            # Configured commands may carry user secrets: never log
+            # their arguments or output.
+            debug(
+                f"command {operation} for {self.name}: "
+                f"{time.monotonic() - started:.3f}s ({outcome})"
+            )

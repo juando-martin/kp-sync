@@ -50,6 +50,7 @@ from kp_sync.history import (
 )
 from kp_sync.kdbx import KdbxError, inspect_kdbx
 from kp_sync.lock import acquire_lock, file_lock
+from kp_sync.log import debug, debug_enabled
 from kp_sync.merge import (
     MergeCredentialError,
     MergeError,
@@ -263,7 +264,12 @@ class SyncEngine:
         validate_hub_encryption(self.config)
         state_path = self.run_directory / "state.json"
         lock_path = self.run_directory / "lock"
+        waiting = time.monotonic()
         with file_lock(lock_path, self.config.sync["lock_timeout"]) as lock_fd:
+            debug(
+                f"sync lock acquired after {time.monotonic() - waiting:.3f}s"
+                + (" (dry run)" if dry_run else "")
+            )
             self._browser_attempted = False
             self._browser_credentials = None
             self._transient_passwords: set[str] = set()
@@ -303,8 +309,26 @@ class SyncEngine:
                                 json.dumps(result.to_dict(), sort_keys=True)
                                 + "\n",
                             )
+                        debug(
+                            f"sync finished: {result.action}, current "
+                            f"{_short(result.current)}"
+                            + (
+                                f", pending: {result.pending}"
+                                if result.pending
+                                else ""
+                            )
+                        )
                         return result
-                    except (_RestartSync, BaselineChanged):
+                    except (_RestartSync, BaselineChanged) as exc:
+                        debug(
+                            (
+                                f"shared history changed during the run: {exc}"
+                                if isinstance(exc, BaselineChanged)
+                                else "a copy changed during the run"
+                            )
+                            + f"; restart {attempt + 1} of "
+                            f"{self.config.sync['max_restarts']}"
+                        )
                         if attempt >= self.config.sync["max_restarts"]:
                             raise SyncError(
                                 "copies kept changing during sync; "
@@ -722,6 +746,10 @@ class SyncEngine:
             classified = self._demote_never_sources(
                 classified, observations_by_id
             )
+            if debug_enabled():
+                _debug_classification(
+                    classified, observations_by_id, fingerprints
+                )
 
             if restore is not None and any(
                 item.state
@@ -2191,9 +2219,9 @@ class SyncEngine:
         try:
             return self.credentials.cached_password()
         except CredentialError as exc:
-            from kp_sync.log import info
+            from kp_sync.log import detail
 
-            info(
+            detail(
                 "cached password is unavailable for optional content "
                 f"hashing: {exc}"
             )
@@ -3868,6 +3896,37 @@ class SyncEngine:
         ensure_private_directory(self.run_directory)
         for name in ("tmp", "bases", "backups"):
             ensure_private_directory(self.run_directory / name)
+
+
+def _short(value: str | None) -> str:
+    return value[:12] if value else "none"
+
+
+def _debug_classification(classified, observations, fingerprints) -> None:
+    """Explain each copy's state; identities and hashes only."""
+    for identity, item in sorted(classified.items()):
+        observation = observations.get(identity)
+        observed = observation.sha256 if observation else None
+        if observation is None or (
+            observed is None and observation.fingerprint is None
+        ):
+            how = "not observed"
+        elif observation.local_path is not None:
+            how = "content read"
+        else:
+            how = "identified without download"
+        effective = fingerprints.get(identity)
+        same_content = (
+            f", same content as {_short(effective)}"
+            if effective and observed and effective != observed
+            else ""
+        )
+        record = item.record.version if item.record else None
+        debug(
+            f"copy {identity}: {item.state.value} (observed "
+            f"{_short(observed)}{same_content}, recorded {_short(record)}, "
+            f"{how})"
+        )
 
 
 class _RestartSync(Exception):

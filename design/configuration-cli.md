@@ -171,7 +171,7 @@ source = "runtime"
 | `kp-sync retire-session [--identity ID] [--confirm ID]` | preview legacy session identities read-only, or retire one identity after exact confirmation and runtime revalidation; shared publication outcomes are reported separately |
 | `kp-sync service install daemon [--desktop]` | write or refresh selected-profile units and required shared templates; reload systemd without enabling or starting; desktop entries opt-in |
 | `kp-sync doctor [--self-test]` | check the installation and report what to fix: units installed and enabled, socket reachable and protocol version, menu entry override still in effect and still calling `kp-sync run` (a KeePassXC update may change the system entry), KeePassXC's reload option, key file readable, rclone remote and probe working, hub on an encrypted disk when `require_encrypted`, a key written by a client readable by the daemon (keyring possession), swap encrypted or absent (`$XDG_RUNTIME_DIR` is tmpfs, which can be swapped out), and for sessions `bwrap` (and unprivileged user namespaces), `sftp-server`, `~/.ssh/authorized_keys` editable (regular file, owned, not group/other-writable), no stale `kp-sync-session-*` lines, and the system sshd reachable on localhost. Explicit `--self-test` authorizes a five-minute restricted key and a confined localhost SFTP put/get round trip; removes only its own key and runtime artifacts afterwards, never uses the database/key file, and catches shell startup output that breaks SFTP |
-| `kp-sync daemon --foreground [--debug]` | run the daemon in the terminal for debugging (the service must be stopped) |
+| `kp-sync daemon [--foreground] [--debug]` | run the daemon in the terminal for debugging (the service must be stopped); it never detaches, so `--foreground` changes nothing |
 
 ### Status presentation (implemented)
 
@@ -224,7 +224,8 @@ copies. A successful local marker remains authoritative for later
 publication if a shared store is unavailable.
 
 Global options: `--config`, `--profile`, `--ui`, `--no-wait`,
-`--no-daemon`, `--verbose` / `--debug`.
+`--no-daemon`, `--verbose` / `--debug` (message levels are defined under
+Logging in the architecture chapter).
 
 ### Explicit maintenance commands
 

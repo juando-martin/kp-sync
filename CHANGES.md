@@ -5,6 +5,22 @@ hold the details; design decisions live in the `design/` chapters.
 
 ## Unreleased
 
+### Added
+
+- `--debug`, or `KP_SYNC_DEBUG=1` in the environment (for example on the
+  daemon's unit), prints `DEBUG:` lines explaining what a run decided:
+  each copy's state with short hashes and how it was observed, sync lock
+  waits, restarts, the outcome, daemon requests and queueing, and the
+  duration of configured commands and the `keepassxc-cli` check. It
+  never shows passwords, command arguments or command output.
+
+### Changed
+
+- Commands run from a terminal no longer print routine `INFO:` lines
+  such as rclone timings and credential-copy housekeeping; `--verbose`
+  shows them again. Results, warnings and errors are unchanged, and the
+  daemon, udevmon hooks and kp-access operations log exactly as before.
+
 ### Documentation
 
 - The `kp-sync(1)` and `kp-sync-config(5)` man pages now describe every
