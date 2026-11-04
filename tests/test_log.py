@@ -121,6 +121,17 @@ class CliLoggingTest(unittest.TestCase):
         self.assertTrue(self.configured(["daemon", "--debug"], True)["debug"])
         self.assertFalse(self.configured(["sync"], True)["debug"])
 
+    def test_daemon_commands_note_that_debug_stays_in_the_client(self):
+        log.configure(debug=True, environ={})
+        sync = cli._build_parser().parse_args(["sync"])
+        output = _capture(cli._note_daemon_debug, sync)
+        self.assertIn("DEBUG: sync runs in the daemon", output)
+        self.assertIn("use --no-daemon", output)
+        run = cli._build_parser().parse_args(["run", "keepassxc"])
+        self.assertNotIn("--no-daemon", _capture(cli._note_daemon_debug, run))
+        log.configure(environ={})
+        self.assertEqual(_capture(cli._note_daemon_debug, sync), "")
+
     def test_main_restores_settings_and_nested_commands_keep_them(self):
         log.configure(interactive=False, environ={})
         before = log.settings()

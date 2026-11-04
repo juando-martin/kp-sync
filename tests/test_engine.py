@@ -1301,6 +1301,13 @@ class EngineTest(unittest.TestCase):
             str(initial), password="test-password", keyfile=str(key_file)
         )
         database.add_entry(database.root_group, "A", "user", "old-password")
+        # Back-date A so the later edit is clearly newer: both
+        # times are whole seconds and could fall in the same one.
+        hour_ago = database._encode_time(
+            datetime.now(timezone.utc) - timedelta(hours=1)
+        )
+        for name in ("LastModificationTime", "LocationChanged"):
+            database.entries[0]._element.find(f"Times/{name}").text = hour_ago
         database.save()
         stale_copy = self.root / "stale-copy.kdbx"
         stale_copy.write_bytes(initial.read_bytes())

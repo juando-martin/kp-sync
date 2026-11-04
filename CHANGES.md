@@ -13,7 +13,8 @@ hold the details; design decisions live in the `design/` chapters.
   waits, restarts, the outcome, daemon requests and queueing, and the
   duration of configured commands and the `keepassxc-cli` check, and the
   command line of every external program run (dialog text is not shown).
-  It never shows passwords, stdin or command output.
+  It never shows passwords, stdin or command output. A command handled
+  by the daemon notes that its `--debug` does not reach the daemon.
 
 ### Changed
 
