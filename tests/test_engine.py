@@ -1,4 +1,6 @@
 import base64
+import contextlib
+import io
 import fcntl
 import copy
 import hashlib
@@ -2171,8 +2173,18 @@ class EngineTest(unittest.TestCase):
             )
         )
 
-        with self.assertRaisesRegex(SyncError, "restart limit"):
+        from kp_sync import log
+
+        self.addCleanup(log.restore_settings, log.settings())
+        log.configure(debug=True, environ={})
+        stderr = io.StringIO()
+        with (
+            contextlib.redirect_stderr(stderr),
+            self.assertRaisesRegex(SyncError, "restart limit"),
+        ):
             engine.sync()
+        self.assertIn("restart limit of 0 reached", stderr.getvalue())
+        self.assertNotIn("restart 1 of 0", stderr.getvalue())
         self.assertEqual(
             len(HistoryState.load(self.run_dir / "state.json").versions), 1
         )

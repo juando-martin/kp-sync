@@ -11,8 +11,9 @@ hold the details; design decisions live in the `design/` chapters.
   daemon's unit), prints `DEBUG:` lines explaining what a run decided:
   each copy's state with short hashes and how it was observed, sync lock
   waits, restarts, the outcome, daemon requests and queueing, and the
-  duration of configured commands and the `keepassxc-cli` check. It
-  never shows passwords, command arguments or command output.
+  duration of configured commands and the `keepassxc-cli` check, and the
+  command line of every external program run (dialog text is not shown).
+  It never shows passwords, stdin or command output.
 
 ### Changed
 

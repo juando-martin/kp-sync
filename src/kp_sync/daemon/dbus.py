@@ -8,6 +8,8 @@ import subprocess
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from kp_sync.log import logged
+
 KEEPASSXC_NAME = "org.keepassxc.KeePassXC.MainWindow"
 
 
@@ -70,7 +72,7 @@ class DBusMonitor:
 
     def _busctl(self, *args: str) -> subprocess.CompletedProcess:
         try:
-            return self._runner(
+            return logged(self._runner)(
                 ["busctl", "--user", *args],
                 capture_output=True,
                 text=True,
@@ -161,7 +163,7 @@ class DBusMonitor:
         """Start or restart the D-Bus and systemd signal monitors."""
         if self._process is None or self._process.poll() is not None:
             try:
-                self._process = self._popen(
+                self._process = logged(self._popen)(
                     [
                         "gdbus",
                         "monitor",
@@ -188,7 +190,7 @@ class DBusMonitor:
             or self._systemd_process.poll() is not None
         ):
             try:
-                self._systemd_process = self._popen(
+                self._systemd_process = logged(self._popen)(
                     [
                         "gdbus",
                         "monitor",

@@ -17,6 +17,7 @@ from kp_sync.endpoints.base import (
 )
 from kp_sync.endpoints.file import FileEndpoint
 from kp_sync.paths import atomic_write, ensure_private_directory, run_dir
+from kp_sync.log import logged
 
 
 class DriveError(ValueError):
@@ -74,7 +75,7 @@ def identify_drive(
     """
     mount = Path(mountpoint).expanduser().resolve()
     try:
-        result = runner(
+        result = logged(runner)(
             [
                 "lsblk",
                 "--json",

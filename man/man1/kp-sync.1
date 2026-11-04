@@ -170,8 +170,13 @@ observed and recorded hashes and how it was observed, restarts caused by
 copies changing during a run, the outcome, and the duration and result of
 configured commands and the
 .B keepassxc-cli
-check. Passwords, command argument lists and command output are never
-shown. It affects only the process it is given to: for
+check, and the full command line of every external program run,
+including the commands configured for
+.B command
+endpoints and rclone (dialogs and notifications show only their option
+names). Passwords, stdin and command output are never shown, so keep
+secrets out of configured arguments: the daemon's debug output goes to
+the journal. It affects only the process it is given to: for
 daemon-backed commands most work happens in the daemon, so debug the
 daemon itself (see
 .B daemon

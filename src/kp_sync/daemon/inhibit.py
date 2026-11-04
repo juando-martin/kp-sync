@@ -6,6 +6,8 @@ import subprocess
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from kp_sync.log import logged
+
 
 class InhibitError(RuntimeError):
     """Raised when logind inhibitor acquisition or release fails."""
@@ -67,7 +69,7 @@ class LogindInhibitor:
             "cat",
         ]
         try:
-            process = self._popen(
+            process = logged(self._popen)(
                 argv,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,

@@ -13,7 +13,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-from kp_sync.log import error, info
+from kp_sync.log import error, info, logged
 from kp_sync.lock import file_lock
 from kp_sync.endpoints.base import EndpointFingerprint
 from kp_sync.paths import ensure_private_directory, ensure_run_dir
@@ -433,7 +433,7 @@ def generate_key(
     """
     key = manager.store.key_path(session_id)
     key.unlink(missing_ok=True)
-    result = runner(
+    result = logged(runner)(
         [
             "ssh-keygen",
             "-q",
@@ -665,7 +665,7 @@ def run_session(
         }
         if managed:
             setup_options["capture_output"] = True
-        setup = runner(
+        setup = logged(runner)(
             ["ssh", "-T", "--", destination, "sh -s"],
             **setup_options,
         )
@@ -702,14 +702,14 @@ def run_session(
                 remote_command,
             ]
             if managed:
-                proc = popen(
+                proc = logged(popen)(
                     ssh_argv,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
             else:
-                proc = popen(ssh_argv)
+                proc = logged(popen)(ssh_argv)
             started = True
             record = replace(
                 record,
@@ -762,7 +762,7 @@ def run_session(
             if not started:
                 return
             try:
-                runner(
+                logged(runner)(
                     [
                         "ssh",
                         "-T",

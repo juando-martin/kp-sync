@@ -59,6 +59,28 @@ class LevelTest(unittest.TestCase):
                 self.assertEqual(log.debug_enabled(), expected)
 
 
+class WriteFailureTest(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(log.restore_settings, log.settings())
+        log.configure(debug=True, environ={})
+
+    def test_failed_writes_never_reach_the_caller(self):
+        class Broken(io.StringIO):
+            def write(self, _):
+                raise OSError(28, "No space left on device")
+
+        with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
+            log.set_log_file(Path(tmp) / "log")
+            self.addCleanup(log.set_log_file, None)
+            with (
+                patch.object(log, "_log_file", Broken()),
+                contextlib.redirect_stderr(Broken()),
+            ):
+                log.debug("kept going")
+                log.info("kept going")
+                log.error("kept going")
+
+
 class CliLoggingTest(unittest.TestCase):
     def setUp(self):
         self.addCleanup(log.restore_settings, log.settings())
@@ -124,13 +146,13 @@ class DebugContentTest(unittest.TestCase):
         self.addCleanup(log.restore_settings, log.settings())
         log.configure(debug=True, environ={})
 
-    def test_command_endpoint_timing_never_shows_arguments(self):
+    def test_command_endpoint_shows_its_command_line_not_output(self):
         with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
             fetch = [
                 sys.executable,
                 "-c",
-                "import sys; sys.exit(3)",
-                "token-SECRET",
+                "import sys; print('OUT' + 'PUT'); sys.exit(3)",
+                "token-ARG",
                 "{file}",
             ]
             endpoint = CommandEndpoint("nas", fetch, ["true", "{file}"])
@@ -140,11 +162,57 @@ class DebugContentTest(unittest.TestCase):
                 self.assertRaises(EndpointUnavailable),
             ):
                 endpoint.fetch(Path(tmp) / "copy")
+            stream_ok = io.StringIO()
+            source = Path(tmp) / "source"
+            source.write_bytes(b"x")
+            ok = CommandEndpoint(
+                "nas",
+                ["true", "{file}"],
+                ["true", "{file}"],
+                probe=["echo", "token"],
+            )
+            with contextlib.redirect_stderr(stream_ok):
+                ok.store(source)
+                ok.probe()
+        self.assertIn(f"DEBUG: run: true {source}\n", stream_ok.getvalue())
+        self.assertIn("DEBUG: run: echo token\n", stream_ok.getvalue())
+        self.assertRegex(
+            stream_ok.getvalue(), r"command store for nas: [0-9.]+s \(ok\)"
+        )
+        self.assertRegex(
+            stream_ok.getvalue(), r"command probe for nas: [0-9.]+s \(ok\)"
+        )
         output = stream.getvalue()
+        self.assertIn("token-ARG", output)
+        self.assertIn(str(Path(tmp) / "copy"), output)
         self.assertRegex(output, r"DEBUG: command fetch for nas: [0-9.]+s")
         self.assertIn("(failed)", output)
-        self.assertNotIn("SECRET", output)
-        self.assertNotIn(tmp, output)
+        self.assertNotIn("OUTPUT", output)
+
+    def test_logged_runs_pass_through_and_quote_arguments(self):
+        runner = Mock(return_value="result")
+        output = _capture(
+            lambda: self.assertEqual(
+                log.logged(runner)(["rclone", "a b"], check=True), "result"
+            )
+        )
+        runner.assert_called_once_with(["rclone", "a b"], check=True)
+        self.assertEqual(output, "DEBUG: run: rclone 'a b'\n")
+
+    def test_dialog_and_notification_text_is_hidden(self):
+        output = _capture(
+            log.debug_command,
+            ["zenity", "--question", "--text", "Entry Bank?", "--width=400"],
+            hide_text=True,
+        )
+        self.assertEqual(
+            output,
+            "DEBUG: run: zenity --question --text --width (text not shown)\n",
+        )
+
+    def test_nothing_is_logged_without_debug(self):
+        log.configure(environ={})
+        self.assertEqual(_capture(log.debug_command, ["rclone"]), "")
 
     def test_classification_explains_each_copy(self):
         version = "a" * 64

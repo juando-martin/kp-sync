@@ -16,7 +16,7 @@ from typing import Any
 
 from kp_sync.daemon.dbus import DBusMonitor, KEEPASSXC_NAME
 from kp_sync.daemon.systemd import SystemdUser, app_unit_name
-from kp_sync.log import error
+from kp_sync.log import error, logged
 
 
 class AppError(RuntimeError):
@@ -61,7 +61,7 @@ def notify_user(
             "notification message must be a non-empty string without NUL bytes"
         )
     try:
-        result = runner(
+        result = logged(runner, hide_text=True)(
             [
                 "notify-send",
                 "--app-name=kp-sync",
@@ -525,7 +525,7 @@ class AppManager:
 
     def _forward(self, command: Sequence[str], args: Sequence[str]) -> None:
         try:
-            result = self._runner(
+            result = logged(self._runner)(
                 [*command, *args],
                 capture_output=True,
                 text=True,
@@ -552,7 +552,7 @@ class AppManager:
         if name != "keepassxc" or not current_environment.get("DISPLAY"):
             return False
         try:
-            result = self._runner(
+            result = logged(self._runner)(
                 ["wmctrl", "-x", "-a", "keepassxc"],
                 capture_output=True,
                 text=True,

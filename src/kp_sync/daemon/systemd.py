@@ -8,6 +8,8 @@ import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
+from kp_sync.log import logged
+
 
 class SystemdError(RuntimeError):
     """Raised when a systemd user operation cannot be completed."""
@@ -87,7 +89,7 @@ class SystemdUser:
         self, argv: Sequence[str], *, check: bool = True
     ) -> subprocess.CompletedProcess:
         try:
-            result = self._runner(
+            result = logged(self._runner)(
                 list(argv),
                 capture_output=True,
                 text=True,

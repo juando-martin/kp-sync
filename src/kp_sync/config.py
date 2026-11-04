@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from kp_sync.log import logged
+
 
 class ConfigError(ValueError):
     """Raised when a configuration file or its values are invalid."""
@@ -962,7 +964,7 @@ def require_encrypted_hub(
     Raise ``ConfigError`` if encryption cannot be confirmed.
     """
     try:
-        mounted = runner(
+        mounted = logged(runner)(
             [
                 "findmnt",
                 "--noheadings",
@@ -976,7 +978,7 @@ def require_encrypted_hub(
             check=True,
         ).stdout.strip()
         source = mounted.split("[", 1)[0]
-        result = runner(
+        result = logged(runner)(
             ["lsblk", "--json", "--inverse", "--output", "TYPE", source],
             capture_output=True,
             text=True,

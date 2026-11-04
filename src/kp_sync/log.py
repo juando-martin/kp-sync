@@ -10,6 +10,7 @@ only with ``--debug`` or ``KP_SYNC_DEBUG``. No kind ever carries
 passwords, command argument lists or command output.
 """
 
+import shlex
 import sys
 import os
 import threading
@@ -117,11 +118,20 @@ def set_log_file(path: Path | None) -> None:
 
 
 def _write(message: str, stream: TextIO | None) -> None:
-    print(message, file=sys.stderr if stream is None else stream)
+    # Logging must never fail its caller: a full log file or a closed
+    # stderr would otherwise abort work midway (for example after the
+    # daemon has queued a sync but before it runs).
+    try:
+        print(message, file=sys.stderr if stream is None else stream)
+    except (OSError, ValueError):
+        pass
     if stream is None:
         with _log_lock:
             if _log_file is not None:
-                print(message, file=_log_file)
+                try:
+                    print(message, file=_log_file)
+                except (OSError, ValueError):
+                    pass
 
 
 def info(message: str, *, stream: TextIO | None = None) -> None:
@@ -139,6 +149,37 @@ def debug(message: str, *, stream: TextIO | None = None) -> None:
     """Write a DEBUG message when debugging is enabled."""
     if _debug:
         _write(f"DEBUG: {message}", stream)
+
+
+def debug_command(argv, *, hide_text: bool = False) -> None:
+    """Write the command line of an external program when debugging.
+
+    Never pass stdin or output here. With ``hide_text``, only the
+    program and its ``--option`` names are shown; use it for dialogs
+    and notifications, whose text can quote database content.
+    """
+    if not _debug:
+        return
+    words = [str(arg) for arg in argv]
+    if hide_text and words:
+        words = [words[0]] + [
+            word.split("=", 1)[0] for word in words[1:] if word[:2] == "--"
+        ]
+        words.append("(text not shown)")
+        debug("run: " + " ".join(words))
+        return
+    debug("run: " + shlex.join(words))
+
+
+def logged(run, *, hide_text: bool = False):
+    """Return ``run`` (``subprocess.run``, ``Popen`` or a fake) wrapped
+    so that its command line is logged with :func:`debug_command`."""
+
+    def logged_run(argv, *args, **kwargs):
+        debug_command(argv, hide_text=hide_text)
+        return run(argv, *args, **kwargs)
+
+    return logged_run
 
 
 def error(message: str, *, stream: TextIO | None = None) -> None:

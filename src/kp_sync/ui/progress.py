@@ -4,7 +4,7 @@ import subprocess
 import threading
 from contextlib import contextmanager
 
-from kp_sync.log import error
+from kp_sync.log import error, logged
 
 
 class SyncProgress:
@@ -54,7 +54,7 @@ class SyncProgress:
                 )
                 if self.database_info:
                     text += f"\n{self.database_info}"
-                self.process = subprocess.Popen(
+                self.process = logged(subprocess.Popen, hide_text=True)(
                     [
                         "zenity",
                         "--progress",

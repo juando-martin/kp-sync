@@ -22,6 +22,7 @@ from kp_sync.sessions.session import (
     read_host_key,
 )
 from kp_sync.sessions.sftp_serve import find_bwrap, find_sftp_server
+from kp_sync.log import logged
 
 
 def self_test(
@@ -131,7 +132,7 @@ def self_test(
                 '"' + str(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
             )
 
-        result = runner(
+        result = logged(runner)(
             [
                 "sftp",
                 "-q",
