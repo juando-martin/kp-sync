@@ -3,6 +3,19 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Changed
+
+- Cloud remotes that list other content hashes no longer download the
+  database on every sync. Dropbox's content hash is now checked against
+  local bytes like MD5 and SHA-256, so a Dropbox cloud needs one listing
+  for an unchanged sync, as Google Drive does. Other hashes of at least
+  64 bits that kp-sync cannot compute (such as OneDrive's `quickxor`)
+  show a copy unchanged, which avoids downloads on unchanged syncs and
+  before writes; the copy is still downloaded after a write to confirm
+  it.
+
 ## 0.3.0 (2026-11-04)
 
 ### Added

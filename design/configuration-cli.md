@@ -29,7 +29,8 @@ Searched at `~/.config/kp-sync/config.toml` (overridable with `--config` or
   output is taken as the recorded version without downloading it (see
   "Sync algorithm", step 2). Without it, the copy is fetched every run.
   `rclone` endpoints do not accept it; their listing qualifies by
-  itself when it includes SHA-256, SHA-1 or MD5.
+  itself when it includes a content hash of at least 64 bits (see
+  "Sync algorithm", step 2).
   `rclone_transport` (`rclone` only): `"cli"` (default) runs rclone
   commands; `"auto"` uses the daemon's persistent `rclone rcd` when this
   rclone supports it (1.61+) and commands otherwise (see "Optional rcd

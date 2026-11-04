@@ -256,16 +256,31 @@ class RcloneEndpointTest(unittest.TestCase):
         self.assertIsNone(first.sha256)
         self.assertEqual(self.endpoint.hashes, {"md5": "abc"})
         self.assertEqual(first, self.endpoint.probe())
-        self.assertTrue(first.token_is_content)
+        # A 3-character test digest is too short to stand for content.
+        self.assertFalse(first.token_is_content)
         self.runner.objects[0]["ModTime"] = "later"
         self.assertNotEqual(first.token, self.endpoint.probe().token)
-        for hashes in ({}, {"quickxor": "abc"}, {"md5": ""}):
+        for hashes in (
+            {},
+            {"md5": ""},
+            {"crc32": "7915140f"},
+            {"CRC32": "7915140f00000000"},
+            {"whatever": "abcdef012345678"},
+            {"quickxor": " " + "a" * 39},
+        ):
             with self.subTest(hashes=hashes):
                 self.runner.objects[0]["Hashes"] = hashes
                 self.assertFalse(self.endpoint.probe().token_is_content)
-        for name in ("MD5", "sha1", "SHA-256"):
+        for name, digest in (
+            ("MD5", "a" * 32),
+            ("sha1", "a" * 40),
+            ("SHA-256", "a" * 64),
+            ("dropbox", "b" * 64),
+            # Not computable locally, but still a content hash.
+            ("quickxor", "6a842b03258cd7378c01046484c31be0208637e0"),
+            ("whirlpool", "c" * 128),
+        ):
             with self.subTest(name=name):
-                digest = "a" * (64 if "256" in name else 32)
                 self.runner.objects[0]["Hashes"] = {name: digest}
                 self.assertTrue(self.endpoint.probe().token_is_content)
         digest = hashlib.sha256(b"payload").hexdigest()

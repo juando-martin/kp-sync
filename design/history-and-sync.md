@@ -295,12 +295,30 @@ that host too.
    equals the one recorded for a known version, its state follows without
    fetching. This shortcut needs a fingerprint that changes whenever the
    content changes: a SHA-256 equal to the version, or a recorded token
-   that includes a content hash (SHA-256, SHA-1 or MD5). An `rclone`
-   remote that lists none of them (only size and modification time) and a
-   `command` endpoint are downloaded on every run, unless the `command`
-   endpoint sets `probe_is_content_hash = true` because its `probe`
-   prints a real content hash. Only such tokens are recorded; tokens
-   recorded by earlier versions without a content hash are ignored.
+   that includes a listed content hash of at least 64 bits (16
+   characters; `crc32` never counts). Two kinds are distinguished
+   (owner decision, 2026-11-04):
+   - *Computable* hashes (SHA-256, SHA-1, MD5 and Dropbox's
+     `content_hash`, SHA-256 over the SHA-256s of 4 MiB blocks) are
+     checked against local bytes, so they also prove which bytes a copy
+     holds: post-write checks, download verification and reuse of the
+     cached `state.json` rely on them.
+   - *Opaque* hashes that kp-sync cannot compute (OneDrive's
+     `quickxor`, and any other) only show that a copy is unchanged since
+     an observation whose bytes were verified (by download, or by a
+     computable hash): the probe shortcut above, the pre-write re-checks
+     of step 5 and the final consistency check after a post-write check
+     that downloaded the copy. They never confirm a write. The token is
+     bound to the verified bytes only by probing before the download;
+     content reverting in between (A, B, A) is the accepted residual
+     risk, and a missed remote edit could later be overwritten, with
+     only the provider's version history to recover it.
+   An `rclone` remote that lists no such hash (only size and
+   modification time) and a `command` endpoint are downloaded on every
+   run, unless the `command` endpoint sets `probe_is_content_hash =
+   true` because its `probe` prints a real content hash. Only such
+   tokens are recorded; tokens recorded by earlier versions without a
+   content hash are ignored.
    An `rclone` endpoint observes its database and the `kp-sync/` history
    with one filtered `lsjson --hash` listing (one rclone process; each costs
    1–2 s). A listed remote checksum (MD5 on Google Drive) that matches a

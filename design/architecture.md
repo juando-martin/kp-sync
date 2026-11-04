@@ -78,8 +78,8 @@ Status: design only. Implementation is a later phase.
   `readonly`, `identity`); the number and kind of endpoints is entirely up to
   the configuration, from zero (hub only) to many. `probe` returns a cheap
   fingerprint (hash or size+mtime) without downloading, when the type allows
-  it. Only a fingerprint that includes a content hash (SHA-256, SHA-1 or
-  MD5) may identify a known version without a download; size and
+  it. Only a fingerprint that includes a content hash of at least 64
+  bits may identify a known version without a download; size and
   modification time alone can survive a same-size rewrite, so such copies
   are downloaded every run (see "Sync algorithm", step 2). Endpoint types:
   - `file`: a path, optionally resolved at runtime. The pendrive is a `file`

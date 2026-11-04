@@ -1250,6 +1250,8 @@ class SyncEngine:
                     inflight_targets,
                 )
 
+            # Post-write observations, which proved the written bytes.
+            verified = {}
             for target in target_observations:
                 fresh_target = self._check_unchanged(
                     target, temporary, cached=True
@@ -1355,7 +1357,7 @@ class SyncEngine:
                         f"without it: {exc}"
                     )
                     continue
-                self._check_candidate(
+                verified[target.identity] = self._check_candidate(
                     target.endpoint,
                     candidate_sha,
                     source.local_path,
@@ -1377,12 +1379,24 @@ class SyncEngine:
                     or item.identity in self._copy_failures
                 )
                 # The written target was verified by a fresh probe.
+                # Each copy's last verified observation (post-write for
+                # targets) may show it unchanged by an equal token.
+                last = verified.get(item.identity, item)
+                fingerprint = last.fingerprint
                 final_observations[item.identity] = self._confirm(
                     item.endpoint,
                     item.sha256 if readonly else candidate_sha,
                     item.local_path if readonly else source.local_path,
                     temporary,
                     cached=item.identity in target_ids,
+                    token=(
+                        fingerprint.token
+                        if fingerprint is not None
+                        and fingerprint.token_is_content
+                        and last.sha256
+                        == (item.sha256 if readonly else candidate_sha)
+                        else None
+                    ),
                 )
 
             self._save_base(source.local_path, candidate_sha)
@@ -1998,12 +2012,19 @@ class SyncEngine:
         cached: bool = False,
         max_age: float | None = None,
         reraise: bool = False,
+        token: str | None = None,
     ) -> Observation:
         """Observe an endpoint expected to hold ``sha256`` or be absent.
 
         Server hashes are compared with local bytes. A remote copy is
         downloaded again only when no endpoint hash is available.
         Raises _RestartSync if the copy differs.
+
+        ``token`` is the content token of an earlier observation of the
+        same copy holding ``sha256``; an unchanged token (only when it
+        covers a content hash) shows the copy unchanged without a
+        download. Post-write checks must not pass one: they must prove
+        which bytes the copy holds.
         """
         try:
             fingerprint = (
@@ -2031,7 +2052,13 @@ class SyncEngine:
             )
             if match is False:
                 raise _RestartSync
-            if match:
+            if match or (
+                match is None
+                and token is not None
+                and sha256 is not None
+                and fingerprint.token_is_content
+                and fingerprint.token == token
+            ):
                 return Observation(
                     endpoint.identity,
                     endpoint,
@@ -2067,6 +2094,7 @@ class SyncEngine:
         cached: bool = False,
         max_age: float | None = None,
     ) -> Observation:
+        fingerprint = expected.fingerprint
         return self._confirm(
             expected.endpoint,
             expected.sha256,
@@ -2074,6 +2102,13 @@ class SyncEngine:
             temporary,
             cached=cached,
             max_age=max_age,
+            # "Unchanged since observed" holds for any content hash,
+            # also one kp-sync cannot compute.
+            token=(
+                fingerprint.token
+                if fingerprint is not None and fingerprint.token_is_content
+                else None
+            ),
         )
 
     def _check_candidate(

@@ -13,10 +13,12 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Iterable, Mapping, Sequence
 
 from kp_sync.endpoints.base import (
+    COMPUTABLE_HASHES,
     Endpoint,
     EndpointError,
     EndpointFingerprint,
     EndpointUnavailable,
+    new_hash,
 )
 from kp_sync.log import info
 from kp_sync.paths import atomic_write
@@ -27,7 +29,24 @@ class EndpointMissing(EndpointUnavailable):
 
 
 _GLOB_SPECIAL = set("*?[]{}\\")
-_CONTENT_HASHES = frozenset({"sha256", "sha1", "md5"})
+# Listed hashes too weak to stand for content (shorter ones are too).
+_WEAK_HASHES = frozenset({"crc32"})
+_MIN_HASH_CHARS = 16
+
+
+def _identifies_content(algorithm: str, value: str) -> bool:
+    """Return whether a listed hash may stand for the file's content.
+
+    Any server content hash of at least 64 bits counts, also one kp-sync
+    cannot compute (such as OneDrive's ``quickxor``): an unchanged value
+    then means unchanged content. Only computable hashes
+    (``COMPUTABLE_HASHES``) can also confirm which bytes a copy holds.
+    """
+    return (
+        algorithm not in _WEAK_HASHES
+        and len(value) >= _MIN_HASH_CHARS
+        and value.strip() == value
+    )
 
 
 def _hash_pairs(hashes: dict[str, str]) -> tuple[tuple[str, str], ...]:
@@ -567,7 +586,8 @@ class RcloneEndpoint(Endpoint):
             # Without a listed content hash the token is only size and
             # modification time, which a same-size rewrite can keep.
             token_is_content=any(
-                algorithm in _CONTENT_HASHES for algorithm, _ in pairs
+                _identifies_content(algorithm, value)
+                for algorithm, value in pairs
             ),
         )
 
@@ -691,11 +711,10 @@ class RcloneEndpoint(Endpoint):
             hashes = {
                 key.lower().replace("-", ""): value.lower()
                 for key, value in metadata.get("Hashes", {}).items()
-                if key.lower().replace("-", "") in {"sha256", "sha1", "md5"}
-                and value
+                if key.lower().replace("-", "") in COMPUTABLE_HASHES and value
             }
             if hashes and all(
-                hashlib.new(algorithm, cached).hexdigest() == digest
+                new_hash(algorithm, cached).hexdigest() == digest
                 for algorithm, digest in hashes.items()
             ):
                 target = Path(destination)
