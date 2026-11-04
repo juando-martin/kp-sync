@@ -176,7 +176,6 @@ carry one account.
 - **Read first:** start at the design index and read applicable chapters.
 - **Branch and commits:** use a dedicated branch for implementation work.
   Keep commits focused; merge, tag and push only when authorized.
-  Include `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`.
 - **Environment:** use Python from `~/.venvs/tools`; Python >=3.11 is
   supported. Do not install dependencies into the shared environment
   without approval. Black/pycodestyle were approved there; new optional
