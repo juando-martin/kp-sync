@@ -18,7 +18,7 @@ from typing import Iterator
 
 from kp_sync.endpoints.base import EndpointUnavailable
 from kp_sync.lock import LockTimeout, file_lock
-from kp_sync.log import error, info
+from kp_sync.log import detail, error, info
 from kp_sync.paths import atomic_write, ensure_private_directory
 
 MAX_CONFIG_BYTES = 1024 * 1024
@@ -140,7 +140,7 @@ class RcloneCredentials:
             with self._lock(wait=wait):
                 self._refresh_locked()
         except LockTimeout:
-            info(f"{self.name}: rclone config in use; import deferred")
+            detail(f"{self.name}: rclone config in use; import deferred")
             return False
         return True
 
@@ -160,7 +160,7 @@ class RcloneCredentials:
             return
         atomic_write(self.path, data)
         atomic_write(self._source, digest + "\n")
-        info(f"{self.name}: imported the external rclone config")
+        detail(f"{self.name}: imported the external rclone config")
 
     def require(self) -> str:
         """Return the private copy path or raise when unavailable.
@@ -215,9 +215,9 @@ class RcloneCredentials:
                     return False
                 self._discard_locked()
         except LockTimeout:
-            info(f"{self.name}: rclone config in use; drain deferred")
+            detail(f"{self.name}: rclone config in use; drain deferred")
             return False
-        info(f"{self.name}: external rclone config gone; copy removed")
+        detail(f"{self.name}: external rclone config gone; copy removed")
         return True
 
     def discard(self, *, wait: bool = True) -> bool:

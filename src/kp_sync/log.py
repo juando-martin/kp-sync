@@ -1,14 +1,79 @@
-"""Write prefixed diagnostics to stderr and an optional log."""
+"""Write prefixed diagnostics to stderr and an optional log.
+
+Three kinds of message exist. ``info`` and ``error`` report outcomes,
+warnings and problems and are always written. ``detail`` reports
+routine diagnostics with the same ``INFO:`` prefix; an interactive
+terminal command hides them unless ``--verbose`` or debugging is on,
+while the daemon, hooks and non-terminal callers always write them.
+``debug`` explains decisions with a ``DEBUG:`` prefix and is written
+only with ``--debug`` or ``KP_SYNC_DEBUG``. No kind ever carries
+passwords, command argument lists or command output.
+"""
 
 import sys
 import os
 import threading
 import stat
 from pathlib import Path
+from collections.abc import Mapping
 from typing import TextIO
 
 _log_file: TextIO | None = None
 _log_lock = threading.Lock()
+_show_details = True
+_debug = False
+
+DEBUG_VARIABLE = "KP_SYNC_DEBUG"
+"""Environment variable that enables debug messages when set."""
+
+
+def debug_requested(environ: Mapping[str, str] | None = None) -> bool:
+    """Return whether ``KP_SYNC_DEBUG`` asks for debug messages.
+
+    Any non-empty value other than ``0``, ``false``, ``no`` or ``off``
+    (in any letter case) enables them.
+    """
+    value = (os.environ if environ is None else environ).get(
+        DEBUG_VARIABLE, ""
+    )
+    return value.strip().lower() not in {"", "0", "false", "no", "off"}
+
+
+def configure(
+    *,
+    verbose: bool = False,
+    debug: bool = False,
+    interactive: bool = False,
+    environ: Mapping[str, str] | None = None,
+) -> None:
+    """Select which optional messages this process writes.
+
+    Args:
+        verbose: Write ``detail`` messages even on a terminal.
+        debug: Write ``debug`` messages (implies ``verbose``).
+        interactive: The command runs for a person at a terminal;
+            ``detail`` messages are then hidden unless requested.
+        environ: Environment checked for ``KP_SYNC_DEBUG``.
+    """
+    global _show_details, _debug
+    _debug = debug or debug_requested(environ)
+    _show_details = verbose or _debug or not interactive
+
+
+def settings() -> tuple[bool, bool]:
+    """Return the current settings for ``restore_settings``."""
+    return _show_details, _debug
+
+
+def restore_settings(saved: tuple[bool, bool]) -> None:
+    """Reinstate settings returned earlier by ``settings``."""
+    global _show_details, _debug
+    _show_details, _debug = saved
+
+
+def debug_enabled() -> bool:
+    """Return whether ``debug`` messages are currently written."""
+    return _debug
 
 
 def set_log_file(path: Path | None) -> None:
@@ -62,6 +127,18 @@ def _write(message: str, stream: TextIO | None) -> None:
 def info(message: str, *, stream: TextIO | None = None) -> None:
     """Write an INFO message to ``stream`` or stderr and the log."""
     _write(f"INFO: {message}", stream)
+
+
+def detail(message: str, *, stream: TextIO | None = None) -> None:
+    """Write a routine INFO diagnostic unless details are hidden."""
+    if _show_details:
+        _write(f"INFO: {message}", stream)
+
+
+def debug(message: str, *, stream: TextIO | None = None) -> None:
+    """Write a DEBUG message when debugging is enabled."""
+    if _debug:
+        _write(f"DEBUG: {message}", stream)
 
 
 def error(message: str, *, stream: TextIO | None = None) -> None:

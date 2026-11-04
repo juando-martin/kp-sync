@@ -1,119 +1,748 @@
-.TH KP-SYNC-CONFIG 5 "2026-10-28" "kp-sync 0.1.2" "File Formats"
+.TH KP-SYNC-CONFIG 5 "2026-11-04" "kp-sync 0.3.1" "File Formats"
 .SH NAME
 kp-sync-config \- TOML configuration for kp-sync
+.SH SYNOPSIS
+.I ~/.config/kp-sync/config.toml
+.br
+.I ~/.config/kp-sync/NAME.toml
 .SH DESCRIPTION
-The default configuration is
+.BR kp-sync (1)
+reads the default configuration from
 .IR ~/.config/kp-sync/config.toml .
-The
-.B kp-sync --profile NAME
+If that file does not exist, built-in defaults are used. The
+.B kp-sync \-\-profile NAME
 option selects
-.IR ~/.config/kp-sync/NAME.toml .
-An explicit
-.B --config FILE
-selects another TOML file. Profiles use the same schema; they do not migrate
-or copy databases or history.
+.IR ~/.config/kp-sync/NAME.toml ,
+and an explicit
+.B \-\-config FILE
+selects another TOML file; both must exist. Profiles use the same schema;
+they do not migrate or copy databases or history.
 .PP
-Unknown keys and values of the wrong type are rejected. Command settings are
-argument arrays, never shell command strings. Keep secrets out of command
-arguments and configuration files. Runtime state is private and stored under
-.BR $XDG_RUNTIME_DIR .
-.SH TOP-LEVEL OPTIONS
+Unknown keys, unknown tables and values of the wrong type are rejected
+with an error naming the key. Durations are integer seconds unless stated
+otherwise; negative durations are rejected. Paths may start with
+.B ~
+for the home directory. Command settings are TOML arrays of strings, run
+directly without a shell, never shell command strings. Keep secrets out of
+command arguments and configuration files: passwords are cached only in
+the kernel keyring.
+.PP
+Each setting below shows its type and default. A minimal configuration
+for a machine with a runtime hub, a cloud copy and key drives is:
+.PP
+.nf
+[[endpoints]]
+name = "cloud"
+type = "rclone"
+remote = "GoogleDrive:kp"
+
+[[endpoints]]
+name = "pendrive"
+type = "file"
+source = "runtime"
+.fi
+.SH TOP-LEVEL SETTINGS
 .TP
-.B hub
-Database path used as the local synchronization hub. Defaults to
-.BR $XDG_RUNTIME_DIR/pass.kdbx ;
+.BR hub " (path)"
+The local copy that applications open and the only place where merging
+happens. Default
+.IR $XDG_RUNTIME_DIR/pass.kdbx ;
 named profiles default to
-.BR $XDG_RUNTIME_DIR/PROFILE/pass.kdbx .
+.IR $XDG_RUNTIME_DIR/PROFILE/pass.kdbx .
+A hub in
+.B $XDG_RUNTIME_DIR
+(memory-backed, cleared at logout) is rebuilt from the other copies when
+needed and may be removed by
+.B kp-sync down
+once its content is safe elsewhere.
+If
+.B XDG_RUNTIME_DIR
+is unset, this setting is required.
 .TP
-.B hub_persistent
-Boolean, default
-.BR false .
-Set true only when the configured hub is on an encrypted persistent disk.
+.BR hub_persistent " (boolean, default false)"
+.B true
+declares that
+.B hub
+lives on permanent storage (normally an encrypted disk), for a machine that
+keeps its own copy, such as a second laptop that works offline. kp-sync
+then never deletes the hub, and
+.B [daemon].idle_sync
+defaults to true. With
+.BR false ,
+the hub is treated as a disposable runtime copy.
 .TP
-.B require_encrypted
-Boolean; defaults to the value of
-.BR hub_persistent .
-Require an encrypted filesystem for a persistent hub.
-.TP
-.B host
-Machine name recorded in history. Defaults to the system hostname.
-.TP
-.B db_name
-Database filename, default
-.BR pass.kdbx .
-Must be one filename, not a path.
-.TP
-.B key_file
-KeePass key-file path, default
-.IR ~/data/Personal/pass.keyx .
-.SH ENDPOINTS
-Use one
-.B [[endpoints]]
-table per copy. Common keys:
-.TP
-.B name
-Unique endpoint name.
-.TP
-.B type
-One of
-.BR file ,
-.BR rclone ,
-or
-.BR command .
-.TP
-.B enabled, readonly, optional
-Booleans controlling endpoint use.
-.TP
-.B on_unavailable
-Unavailable-endpoint policy.
-.TP
-.B timeout
-Command/endpoint timeout in seconds.
-.TP
-.B foreign_writers
-Whether other applications may change this copy. Defaults true for rclone
-and read-write sessions.
-.PP
-For
-.BR file ,
-use
-.B path
-for a fixed database or
-.B source = "runtime"
-for the attached-drive endpoint. A runtime endpoint may also specify
-.B identity
-and only one enabled runtime file endpoint is allowed.
-.PP
-For
-.BR rclone ,
-use
-.BR remote ,
-.BR rclone_config ,
-.BR download ,
-.BR upload ,
-.BR probe ,
+.BR require_encrypted " (boolean, default: value of hub_persistent)"
+When the hub is persistent, refuse to use it unless it is on a
+dm-crypt/LUKS device (checked with
+.BR findmnt (8)
 and
-.BR timeout
-as required by the endpoint.
-.B rclone_config
-names a provider-owned file that is only read; kp-sync passes rclone its
-own private per-profile copy and reports credentials unavailable while
-no copy exists. For
-.BR command ,
-provide
-.BR fetch ,
-.BR store ,
-and
-.B probe
-as argument arrays. The literal placeholders
-.B {file}
-and
-.B {remote}
-are substituted; no shell is used.
-.SH NAMED SSH SESSIONS
+.BR lsblk (8)).
 Set
-.B [sessions].enabled = true
-to allow SSH sessions. Define one table per managed session:
+.B false
+only for a hub on storage encrypted by other means.
+.TP
+.BR host " (string, default: the system host name)"
+Name of this machine in the history; the hub is recorded as the copy
+.BR hub:HOST .
+Must be unique among machines sharing a history and stay stable.
+.TP
+.BR db_name " (string, default \(dqpass.kdbx\(dq)"
+Database file name used on every copy: on the cloud remote, in the drive
+directory and in sessions. Must be a single file name, not a path.
+.TP
+.BR key_file " (path, default ~/data/Personal/pass.keyx)"
+KeePass key file used together with the password to open the database for
+merges, content checks and restores. It is never copied to permanent
+storage.
+.SH ENDPOINTS
+Each
+.B [[endpoints]]
+table describes one copy of the database besides the hub. Any number of
+endpoints, including none, may be configured. Drives and sessions that
+appear at runtime are added automatically.
+.SS "Common keys"
+.TP
+.BR name " (string, required)"
+Unique name, starting with a letter or digit and containing only letters,
+digits,
+.B _
+and
+.BR \- .
+Used in messages,
+.B status
+and
+.BR [baseline].stores .
+.TP
+.BR type " (string, required)"
+.RS
+.TP
+.B file
+A database at a local path, or the removable-drive slot
+.RB ( "source = \(dqruntime\(dq" ).
+.TP
+.B rclone
+A cloud remote reached with
+.BR rclone (1).
+.TP
+.B command
+Any other storage reached with user-supplied fetch/store commands.
+.RE
+.TP
+.BR enabled " (boolean, default true)"
+.B false
+keeps the table in the file but ignores the endpoint.
+.TP
+.BR readonly " (boolean, default false)"
+.B true
+makes the copy a source of information only: it is never written. A change
+found in it is not promoted; it is kept as a side copy in the runtime
+backups and reported once per distinct content. A read-only endpoint
+cannot be a baseline store.
+.TP
+.BR optional " (boolean, default false)"
+.B true
+means the copy is often absent, and that is normal: when it cannot be
+reached nothing is logged and it does not cause exit status 4.
+.TP
+.BR on_unavailable " (string, default \(dqwarn\(dq)"
+What to do when the endpoint cannot be reached during a
+synchronization:
+.RS
+.TP
+.B warn
+Log an
+.B INFO:
+line, synchronize the remaining copies, and report the endpoint as
+unreachable (exit status 4).
+.TP
+.B skip
+As
+.BR warn ,
+without the log line.
+.TP
+.B fail
+Abort the whole synchronization with an error (exit status 1); nothing is
+written.
+.RE
+.IP
+In every case the endpoint is retried on the next run; nothing is queued.
+.TP
+.BR timeout " (number, default 30)"
+Seconds allowed for each fetch, store or probe of this endpoint; must be
+greater than zero. A command that exceeds it counts as unreachable.
+.TP
+.BR foreign_writers " (boolean, default true for rclone, false otherwise)"
+.B true
+means programs other than kp-sync may edit this copy (phone apps on a
+cloud copy, a read-write remote session). A change found there gets the
+.I foreign change
+check controlled by
+.BR [verify].foreign_check ,
+which protects against an app saving an outdated in-memory database.
+.TP
+.BR identity " (string)"
+Stable name of the physical copy in the history. Defaults:
+.BI file: NAME
+for a fixed file,
+.BI cloud: REMOTE
+for rclone,
+.BI command: NAME
+for a command endpoint. Machines that share a copy under different
+endpoint names must use the same identity. Ignored for runtime drives,
+whose identity is always the drive's
+.IR SERIAL:FS_UUID .
+.SS "file endpoints"
+.TP
+.BR path " (path)"
+A fixed database file, for example on a mounted network share. Required
+unless
+.B source
+is set.
+.TP
+.BR source " (string)"
+Only
+.B \(dqruntime\(dq
+is accepted: this endpoint is the template for removable drives registered
+at runtime with
+.BR "kp-sync attach" ,
+.B up
+or
+.BR drive-sync .
+Each attached drive becomes a separate copy, identified by
+.IR SERIAL:FS_UUID ,
+whose database is
+.IR MOUNTPOINT/[drives].directory/db_name .
+Cannot be combined with
+.BR path .
+At most one enabled runtime file endpoint is allowed.
+.PP
+Writable file endpoints are updated with an atomic rename exchange, or on
+filesystems without it (exFAT) with a displace-then-install sequence; a
+save that races with the update is kept as a backup and merged on the next
+run.
+.SS "rclone endpoints"
+.TP
+.BR remote " (string, required)"
+rclone remote, optionally with a folder:
+.B \(dqGoogleDrive\(dq
+or
+.BR \(dqGoogleDrive:kp\(dq .
+The database is
+.IR REMOTE:db_name
+and the shared history is
+.IR REMOTE:[baseline].dir .
+.TP
+.BR rclone_config " (path)"
+rclone configuration file provided by another tool (for example copied
+from a key drive). kp-sync only reads it and runs rclone with its own
+private per-profile copy; while no copy exists the endpoint reports its
+credentials as unavailable. Without this key rclone uses its usual
+configuration file.
+.TP
+.BR download ", " upload " (array of strings)"
+Replace the transfer commands. Defaults:
+.B [\(dqrclone\(dq, \(dqcopyto\(dq, \(dq{remote}\(dq, \(dq{file}\(dq]
+and
+.BR [\(dqrclone\(dq,\ \(dqcopyto\(dq,\ \(dq{file}\(dq,\ \(dq{remote}\(dq] .
+.B {remote}
+is replaced by the remote database path and
+.B {file}
+by the local file; each command must contain
+.BR {file} .
+.B copyto
+updates the file in place, which keeps the cloud provider's version
+history.
+.TP
+.BR probe " (array of strings)"
+Replace the cheap change check, which must not use
+.BR {file} .
+By default kp-sync observes the database and the history with one
+.B rclone lsjson \-\-hash
+listing per run. A listed content hash of at least 64 bits (MD5, SHA-1,
+SHA-256, Dropbox's content hash, ...) identifies a known version without
+a download; remotes without such a hash are downloaded every run. A custom
+probe disables the combined listing.
+.TP
+.BR rclone_transport " (string, default \(dqcli\(dq)"
+.RS
+.TP
+.B cli
+Run a separate
+.B rclone
+process for each operation.
+.TP
+.B auto
+Let the daemon keep one
+.B rclone rcd
+server per endpoint on a private socket and send operations to it, which
+avoids rclone start-up time. Falls back to separate processes while the
+server is not answering, for custom commands, and with rclone older than
+1.61.
+.RE
+.SS "command endpoints"
+.TP
+.BR fetch " (array of strings, required)"
+Command that writes the database to the local path
+.BR {file} ,
+which must appear in it.
+.TP
+.BR store " (array of strings, required)"
+Command that uploads the local file
+.BR {file} ,
+which must appear in it.
+.TP
+.BR probe " (array of strings)"
+Optional command that prints a non-empty token describing the current
+remote copy on standard output; it must not use
+.BR {file} .
+.TP
+.BR probe_is_content_hash " (boolean, default false)"
+.B true
+declares that the
+.B probe
+output is a content hash: it changes whenever the content changes.
+An unchanged output is then taken as the recorded version without a
+download. Requires
+.BR probe .
+With
+.BR false ,
+the copy is fetched on every run.
+.PP
+Example:
+.PP
+.nf
+[[endpoints]]
+name = "nas"
+type = "command"
+fetch = ["scp", "nas:kp/pass.kdbx", "{file}"]
+store = ["scp", "{file}", "nas:kp/pass.kdbx"]
+probe = ["ssh", "nas", "sha256sum", "kp/pass.kdbx"]
+probe_is_content_hash = true
+.fi
+.SH [baseline]
+The shared history (versions, their parents and which copy holds which
+version) is stored in
+.I baseline stores
+so that machines agree on what changed.
+.TP
+.BR stores " (array of strings, default [\(dqcloud\(dq, \(dqpendrive\(dq])"
+Endpoint names, in priority order, that hold the shared history. Only
+enabled, writable
+.B rclone
+and runtime-drive
+.B file
+endpoints qualify. With the default, names that are not configured are
+ignored silently. An explicit list must contain at least one usable store;
+unusable names are reported as warnings. Writable drives keep history too,
+so a machine started offline can still recognize their copies. Names are
+local to each configuration, but the same physical copy needs the same
+identity on every machine.
+.TP
+.BR dir " (string, default \(dqkp-sync\(dq)"
+History directory, relative to the root of every store (the rclone remote
+or the drive's mount point). Machines sharing a store must use the same
+value. Changing it does not migrate existing history.
+.TP
+.BR keep_days " (integer, default 180)"
+Age in days after which unused versions and copy records not seen since
+are pruned. Ancestry needed by retained versions is kept.
+.SH [drives]
+.TP
+.BR notify_stale " (boolean, default true)"
+Show a desktop notification when an attached drive held an outdated copy
+and was updated.
+.TP
+.BR directory " (string, default \(dq.\(dq)"
+Database directory relative to a drive's mount point. Absolute paths and
+.B ..
+are rejected. It does not move the drive's history directory or rescue
+files, which stay at the drive root.
+.TP
+.B [drives.aliases]
+Optional display names, keyed by the complete
+.B SERIAL:FS_UUID
+identity. Values must be non-empty and free of control characters. Aliases
+only change what
+.B status
+shows (the technical identity is still shown below it); they do not
+affect synchronization, mount matching or drive selection. Duplicate names
+are allowed.
+.PP
+.nf
+[drives.aliases]
+"1111222233334444:6FD1\-7B31" = "Daily backup"
+.fi
+.SH [verify]
+Checks applied to a candidate before it is written anywhere.
+.TP
+.BR max_entry_drop " (number 0..1, default 0.10)"
+.TQ
+.BR min_entry_drop " (integer, default 5)"
+A candidate that has lost more than
+.B max_entry_drop
+(as a fraction) of the entries of the version it came from, and also more
+than
+.B min_entry_drop
+entries, needs explicit confirmation. Both limits must be exceeded, so
+small databases are not blocked by a single deletion.
+.TP
+.BR foreign_check " (string, default \(dqalways\(dq)"
+How changes found on
+.B foreign_writers
+endpoints are checked against an application that saved an outdated
+copy:
+.RS
+.TP
+.B always
+Check every foreign change; this needs the password. A save from a stale
+cache contributes only entries modified after its recorded version.
+.TP
+.B merge-only
+Check only when another copy changed as well. A lone phone edit is then
+promoted without asking for the password, accepting the risk that it was
+saved from a stale cache.
+.RE
+.SH [merge]
+.TP
+.BR engine " (string, default \(dqkp-sync\(dq)"
+.RS
+.TP
+.B kp-sync
+Built-in 3-way merge, field by field, against the common ancestor version.
+Independent changes merge without questions; conflicting edits of the same
+field go to review; deletions are respected.
+.TP
+.B keepassxc
+Use
+.BR "keepassxc-cli merge" :
+newest modification wins and there is no review. With KeePassXC 2.6.6 a
+deletion recorded in the other copy was not applied, so deleted entries
+can come back.
+.RE
+.TP
+.BR review " (string, default \(dqinteractive\(dq)"
+How conflicts found by the built-in merge are decided:
+.RS
+.TP
+.B interactive
+Show the field-by-field conflict review (secrets masked) on the terminal or
+desktop.
+.TP
+.B auto-hub
+Resolve every conflict with the hub's value, without asking.
+.TP
+.B auto-other
+Resolve every conflict with the other copy's value, without asking.
+.TP
+.B defer
+Do not merge; leave all copies as they are and record a pending decision
+for
+.BR "kp-sync resolve" .
+.RE
+.SH [ui]
+.TP
+.BR mode " (string, default \(dqauto\(dq)"
+.RS
+.TP
+.B auto
+Terminal if standard input is a terminal, otherwise desktop dialogs if a
+display is available, otherwise
+.BR none .
+.TP
+.B tty
+Always ask on the terminal of the waiting client.
+.TP
+.B gui
+Always ask with desktop dialogs.
+.TP
+.B none
+Never ask; questions become pending decisions.
+.RE
+.IP
+The
+.B \-\-ui
+command-line option overrides it.
+.TP
+.BR gui " (string or array of strings, default \(dqzenity\(dq)"
+Desktop dialog backend:
+.RS
+.TP
+.B zenity
+GNOME/GTK dialogs.
+.TP
+.B kdialog
+KDE dialogs.
+.TP
+.I other
+Any other string is an executable, and an array is a full argument list,
+for a custom program that reads a JSON request on standard input and
+writes a JSON answer on standard output.
+.RE
+.IP
+On the desktop, the field-by-field conflict review uses a built-in
+tkinter window with every backend.
+.TP
+.BR ask_first " (boolean, default true)"
+Before asking for the password or opening the conflict review, first ask
+whether to do it now (for example
+.IR "Merge now" / Later ),
+so a background synchronization does not interrupt the user unexpectedly.
+.TP
+.BR dialog_timeout " (integer, default 600)"
+Seconds to wait for an answer before taking the safe answer (defer,
+overwrite nothing).
+.TP
+.BR notify " (boolean, default true)"
+Show desktop notifications (copy updated, endpoint unavailable, reopen
+needed, ...).
+.TP
+.BR progress " (boolean, default true)"
+Show a progress window when a desktop synchronization takes longer than
+two seconds. It names the profile and hub; its
+.B Hide
+button closes only the window, never the synchronization. Not shown for
+background polls.
+.SH [credentials]
+.TP
+.BR cache_timeout " (integer, default 900)"
+Seconds the main password stays cached in the kernel keyring as
+.BR kp-sync:PROFILE:password .
+.B kp-sync forget
+removes it earlier.
+.SS [credentials.keepassxc]
+.TP
+.BR url " (string)"
+Configuring this table opts into retrieving the password from an unlocked
+KeePassXC database through the browser-integration protocol, before the
+manual cache and the password prompt, whenever an operation needs
+credentials. The URL is only a lookup key matching one entry and is never
+fetched; use a unique host name per profile, for example
+.BR https://kp-sync-default.invalid .
+Requires the optional
+.B keepassxc
+package extra and browser integration enabled in KeePassXC. The first
+interactive use asks KeePassXC for an association. Several matching
+entries, a locked database or an unavailable KeePassXC fall back to the
+normal prompt with a warning. Silent polls skip the lookup so they never
+trigger approval dialogs. Retrieved passwords are validated against the
+database and never cached across operations. The configured key file is
+still required.
+.PP
+Only pairing metadata persists under
+.B $XDG_STATE_HOME/kp-sync/
+(default
+.IR ~/.local/state/kp-sync/ ),
+isolated by host and profile and pinned to the database identity. No
+password is stored there.
+.B kp-sync keepassxc-disconnect
+removes the local pairing; revoke the connection in KeePassXC as well.
+.B kp-sync forget
+clears only the keyring cache.
+.SH [backups]
+.TP
+.BR keep " (integer, default 20, at least 1)"
+Number of timestamped runtime backups to keep. A backup is made before
+every overwrite of a copy. Backups live in the runtime directory and are
+lost at logout or reboot.
+.SH [daemon]
+.TP
+.BR debounce " (number, default 2)"
+Seconds to wait after a hub save before synchronizing, so a burst of
+writes leads to one run.
+.TP
+.BR poll_interval " (integer, default 900)"
+Seconds between endpoint checks while a lease is held, mainly to bring in
+cloud edits made on phones.
+.B 0
+disables polling.
+.TP
+.BR idle_exit " (integer, default 120)"
+Seconds the daemon stays running after the last lease ends, so a quick
+relaunch does not restart it.
+.TP
+.BR prestart_timeout " (integer, default 20)"
+Seconds
+.B kp-sync run
+waits for the pre-launch synchronization before starting the application
+on the existing hub. Without a hub, the launch waits for the first
+download regardless.
+.TP
+.BR access_lease_ttl " (integer, default 3600)"
+Seconds a kp-access lease (BEGIN..END) keeps the daemon running without any
+operation. Expiry only lets the daemon exit; the staged copy stays until
+END and the next operation takes the lease again.
+.TP
+.BR hub_path_unit " (boolean, default true)"
+Install and enable a systemd path unit that starts the daemon when the hub
+is saved by a program kp-sync did not start, so that save is synchronized
+too.
+.TP
+.BR idle_sync " (boolean, default: value of hub_persistent)"
+Install and enable a systemd timer that runs one synchronization at login
+and every
+.B idle_sync_interval
+without holding a lease, so a persistent hub stays current for later
+offline use. Normally off for a runtime hub, which usually does not exist
+while nothing uses it.
+.TP
+.BR idle_sync_interval " (integer, default 3600)"
+Seconds between idle synchronizations.
+.TP
+.BR rescue_wait " (integer, default 60)"
+At shutdown, when the runtime hub holds content that exists on no other
+copy, seconds to wait for the user to insert a writable drive that will
+receive a rescue file.
+.PP
+Changes to
+.B hub_path_unit
+and
+.B idle_sync
+take effect after
+.B kp-sync service install daemon
+and
+.BR "kp-sync service enable daemon" .
+.SH [sync]
+.TP
+.BR lock_timeout " (integer, default 60)"
+Seconds a
+.B \-\-no\-daemon
+run waits for the engine lock held by another run before failing.
+.TP
+.BR max_restarts " (integer, default 3)"
+How many times a synchronization starts over when a copy changes while it
+is running (detected by the re-check before each write) before it gives up
+and reports the problem.
+.SH [launch]
+.TP
+.BR default_app " (string, default \(dqkeepassxc\(dq)"
+Application started by
+.B kp-sync run
+and
+.B up
+without
+.BR \-\-app :
+.BR keepassxc ,
+.B keepass-legacy
+or the name of an
+.B [apps.NAME]
+table.
+.TP
+.BR confirm_without_cloud " (boolean, default false)"
+When the pre-launch synchronization could not reach every endpoint, ask
+before starting the application on a hub that may be outdated. With
+.B false
+the application starts and a notification is shown.
+.TP
+.BR quit_on_last_drive " (boolean, default true)"
+When the last attached drive is removed
+.RB ( down ,
+or
+.B eject
+with no other drive), quit the applications started by
+.B up
+and remove the runtime hub after its final synchronization. Set
+.B false
+on machines where drives are only extra copies.
+.SH [apps.NAME]
+Defines an application for
+.B kp-sync run \-\-app NAME
+or
+.BR [launch].default_app .
+.I NAME
+uses letters, digits,
+.B _
+and
+.BR \- .
+A table named
+.B keepassxc
+or
+.B keepass-legacy
+replaces the built-in definition entirely; keys it omits take the
+defaults below, not the built-in values.
+.TP
+.BR command " (array of strings)"
+Program and arguments to start. Arguments given to
+.B kp-sync run
+are appended. For applications named
+.B keepassxc
+or
+.B keepass-legacy
+started without extra arguments, the hub path is appended; for other
+names include the hub path in
+.B command
+if the program needs it.
+.TP
+.BR process " (array of strings)"
+Process names used to find the application when it was started without
+kp-sync, so the daemon can still hold a lease for it. KeePassXC is also
+found through its D-Bus name.
+.TP
+.BR reloads " (boolean, default false)"
+.B true
+declares that the application reloads the database by itself when the
+file changes on disk. With
+.BR false ,
+after kp-sync updates the hub the user is told to reopen it, and until the
+application reopens the file its saves are treated as foreign changes, so
+an old in-memory copy cannot revert the update. For KeePassXC the daemon
+also checks its
+.I Automatically reload the database when modified externally
+setting and treats it as not reloading if the setting is off.
+.TP
+.BR single_instance " (boolean, default false)"
+.B true
+declares that only one instance runs at a time: a new
+.B run
+activates the existing window instead of starting another, or passes its
+extra arguments to the running instance.
+.PP
+Built-in definitions:
+.B keepassxc
+runs
+.BR keepassxc ,
+reloads, single instance;
+.B keepass-legacy
+runs
+.BR keepass ,
+does not reload, single instance.
+.SH SESSIONS
+.SS [sessions]
+Shared settings for
+.B kp-sync session
+and named SSH sessions.
+.TP
+.BR enabled " (boolean, default false)"
+Allow remote sessions at all.
+.TP
+.BR mount_dir " (string, default \(dq~/kp\(dq)"
+Remote directory where the database is mounted with sshfs.
+.TP
+.BR tunnel_port " (integer 1..65535, default 2222)"
+Port on the remote host for the reverse tunnel to the local sshd. Only one
+session per remote host can use a port at a time; a port already in use
+there fails the session with an error.
+.TP
+.BR default_mode " (string, default \(dqro\(dq)"
+.B ro
+mounts the database read-only on the remote side;
+.B rw
+lets the remote side save, and those saves are synchronized back as
+foreign changes.
+.TP
+.BR session_key_ttl " (integer, default 86400)"
+Lifetime of a session's SSH key: the
+.B expiry-time
+written on its
+.I authorized_keys
+line. The key is removed earlier when the session ends.
+.SS [ssh_sessions.NAME]
+A named session managed with
+.BR "kp-sync service start|stop|status ssh-session NAME" .
+.I NAME
+has up to 48 letters, digits,
+.B _
+and
+.BR \- .
 .PP
 .nf
 [ssh_sessions.office]
@@ -123,291 +752,105 @@ mount_dir = "~/kp"
 unconfined = false
 .fi
 .TP
-.B target
-Required
+.BR target " (string, required)"
 .BR [USER@]HOST[:PATH]
 destination. A path in the target overrides
 .BR mount_dir .
 .TP
-.B mode
-Either
+.BR mode " (string)"
 .B ro
 or
-.BR rw ;
-defaults to
-.BR sessions.default_mode .
+.BR rw ,
+as in
+.BR [sessions].default_mode ,
+which is the default.
 .TP
-.B mount_dir
+.BR mount_dir " (string)"
 Remote mount path. Defaults to
-.BR sessions.mount_dir .
+.BR [sessions].mount_dir .
 .TP
-.B unconfined
-Boolean, default false. Disabling confinement requires an explicit true and
-should be avoided.
+.BR unconfined " (boolean, default false)"
+.B true
+serves the session without
+.BR bwrap (1)
+confinement. Should be avoided.
 .PP
-Manage a named session with
-.BR "kp-sync service start|stop|status ssh-session NAME" .
-It uses a transient systemd user service, survives terminal closure, and
-holds the SSH access and sync lease until stopped. It does not survive user
-logout or reboot unless the systemd user manager is configured to linger.
-Logs are in the systemd user journal.
-.SS [sessions]
-The shared settings are:
+The session runs in a transient systemd user service, survives closing the
+terminal, and holds the SSH access and synchronization lease until it is
+stopped. It does not survive logout or reboot unless the systemd user
+manager lingers. Logs are in the user journal.
+.SH KP-ACCESS
+.SS [access]
+Settings for
+.B kp-sync access-op
+as the
+.B \-\-file\-op\-cmd
+of
+.BR kp-access .
 .TP
-.B enabled
-Boolean, default false.
+.BR db_path " (string)"
+The database path as kp-access shows it to clients (its
+.BR \-\-path\-name ),
+for example
+.BR /kp/pass.kdbx .
+Must be a normalized absolute path. A directory component is preferred
+because it narrows the operations the server allows; a root-level path
+such as
+.B /pass.kdbx
+also works. Required for
+.BR access-op .
 .TP
-.B mount_dir
-Default remote mount path, default
-.IR ~/kp .
+.BR staging_dir " (string, default \(dqstaging\(dq)"
+Directory holding the copy staged for kp-access. A relative path is
+relative to the profile's runtime directory; an absolute path must still
+be inside it and must not contain symbolic links.
+.SS [access_owners.NAME]
+A named
+.B kp-access-owner
+process managed with
+.BR "kp-sync service start|stop|status access-owner NAME" .
 .TP
-.B tunnel_port
-Reverse-tunnel port on the remote host, default 2222.
-.TP
-.B default_mode
-Default access mode,
-.B ro
-or
-.BR rw ;
-default
-.BR ro .
-.TP
-.B session_key_ttl
-Session key lifetime in seconds, default 86400.
-.SH KP-ACCESS OWNER SERVICES
-Define a named owner process as an argv array:
+.BR command " (array of strings, required)"
+Program and arguments, run directly without a shell inside a transient
+systemd user service. It must stay in the foreground. Its standard output
+and error are discarded; kp-sync lifecycle messages and errors go to the
+user journal. Use an absolute executable path if the program is not in the
+systemd user manager's
+.BR PATH .
 .PP
 .nf
 [access_owners.windows]
-command = ["/path/to/venv/bin/kp-access-owner", "--config", "/path/to/owner.toml"]
+command = ["/path/to/venv/bin/kp-access-owner", "\-\-config", "/path/to/owner.toml"]
 .fi
 .PP
-The command is started directly, without a shell, inside a transient systemd
-user service and must remain in the foreground. Its stdout and stderr are
-discarded; kp-sync lifecycle messages and errors are in the user journal.
-Use an absolute executable path if the program is not in the systemd user
-manager's
-.BR PATH .
-Manage it with
-.BR "kp-sync service start|stop|status access-owner NAME" .
 The owner must still be configured to use
 .B kp-sync access-op
 as its file-operation hook when synchronization integration is desired.
-.SS [access]
-.TP
-.B staging_dir
-Optional staging directory for kp-access.
-.TP
-.B db_path
-Optional normalized absolute staged database path as seen by kp-access.
-A directory component is preferred.
-.SH USER INTERFACE
-.SS [ui]
-.TP
-.B mode
-One of
-.BR auto ,
-.BR tty ,
-.BR gui ,
-or
-.BR none ;
-default
-.BR auto .
-.TP
-.B gui
-GUI backend
-.BR zenity ,
-.BR kdialog ,
-or a custom executable/argv array. Custom commands use a JSON
-stdin/stdout protocol.
-.TP
-.B ask_first
-Boolean, default true; ask before interrupting the user with a decision.
-.TP
-.B dialog_timeout
-Decision dialog timeout in seconds, default 600.
-.TP
-.B notify
-Boolean, default true.
-.TP
-.B progress
-Boolean, default true. The delayed desktop progress window shows the profile
-and configured hub path; hiding it does not cancel synchronization.
-.SH OTHER SECTIONS
-.SS [baseline]
-.TP
-.B stores
-Endpoint names in priority order, default
-.BR ["cloud", "pendrive"] .
-Names resolve locally in each configuration; different machines may use
-different aliases, but the same physical copy needs a consistent identity.
-.TP
-.B dir
-History directory inside each baseline store, default
-.BR kp-sync .
-This one setting applies relative to every configured store's root.
-Machines sharing a store must resolve to the same history directory.
-Changing it does not migrate existing history.
-.TP
-.B keep_days
-Retained history age in days, default 180.
-.SS [drives]
-.TP
-.B notify_stale
-Notify when an outdated attached drive is updated; default true.
-.TP
-.B directory
-Relative database directory inside a mounted drive, default
-.BR "." .
-Absolute paths and parent traversal are rejected.
-.TP
-.B aliases
-Optional per-profile display names in the nested
-.B [drives.aliases]
-table. Keys are complete
-.B SERIAL:FS_UUID
-identities and values must be non-empty strings without terminal control
-characters. Aliases do not change synchronization identity, authorization,
-mount matching or drive selection. Duplicate names are allowed; status
-continues to show the technical identity.
+.SH EXAMPLE
+A second laptop with a persistent hub on an encrypted disk:
 .PP
 .nf
-[drives.aliases]
-"1111222233334444:AB12-CD34" = "Daily backup"
+hub = "~/data/pass.kdbx"
+hub_persistent = true
+key_file = "~/data/pass.keyx"
+
+[[endpoints]]
+name = "cloud"
+type = "rclone"
+remote = "GoogleDrive"
+
+[[endpoints]]
+name = "pendrive"
+type = "file"
+source = "runtime"
+
+[launch]
+quit_on_last_drive = false
 .fi
-.SS [credentials]
-.TP
-.B cache_timeout
-Main password-keyring cache lifetime in seconds, default 900.
-.SS [credentials.keepassxc]
-.TP
-.B url
-Optional browser-protocol lookup URL. Configuring it opts into KeePassXC
-retrieval before the manual cache and password prompt, when an operation
-needs credentials. The URL is never fetched. Use one matching entry and
-a unique hostname per profile, for example
-.BR https://kp-sync-default.invalid .
-Requires the optional
-.B keepassxc
-package extra, browser integration, and an unlocked KeePassXC database.
-First interactive use requests association. Multiple matches warn and
-fall back; locked or unavailable KeePassXC also falls back.
-Silent polls skip lookup to avoid approval dialogs.
-Retrieved passwords are validated but never cached across operations.
-The configured key file remains required.
-.PP
-Only pairing metadata persists under
-.BR $XDG_STATE_HOME/kp-sync/
-(default
-.IR ~/.local/state/kp-sync/ ),
-privately isolated by configured host/profile and pinned to the selected
-database identity. No password is stored there.
-.B kp-sync keepassxc-disconnect
-removes local pairing; revoke the connection in KeePassXC as well to
-remove remote authorization.
-.B kp-sync forget
-only clears manually populated password caches.
-.SS [backups]
-.TP
-.B keep
-Number of runtime backups to retain, default 20.
-.SS [verify]
-.TP
-.B max_entry_drop
-Maximum fractional entry drop before confirmation may be required, default
-.BR 0.10 .
-.TP
-.B min_entry_drop
-Minimum entry drop threshold, default 5.
-.TP
-.B foreign_check
-One of
-.BR always
-or
-.BR merge-only ;
-default
-.BR always .
-.SS [merge]
-.TP
-.B engine
-One of
-.BR kp-sync
-or
-.BR keepassxc ;
-default
-.BR kp-sync .
-.TP
-.B review
-One of
-.BR interactive ,
-.BR auto-hub ,
-.BR auto-other ,
-or
-.BR defer ;
-default
-.BR interactive .
-.SS [daemon]
-.TP
-.B debounce
-Hub-change debounce in seconds, default 2.
-.TP
-.B poll_interval
-Endpoint polling interval in seconds, default 900; zero disables polling.
-.TP
-.B idle_exit
-Exit delay after the last lease ends, default 120 seconds.
-.TP
-.B prestart_timeout
-Application fast-start timeout, default 20 seconds.
-.TP
-.B access_lease_ttl
-kp-access lease lifetime without requests, default 3600 seconds.
-.TP
-.B hub_path_unit
-Install a systemd path unit for hub changes; default true.
-.TP
-.B idle_sync
-Run periodic synchronization with no lease. Defaults true for persistent
-hubs and false otherwise.
-.TP
-.B idle_sync_interval
-Idle synchronization interval, default 3600 seconds.
-.TP
-.B rescue_wait
-Time to wait for a removable drive during shutdown rescue, default 60
-seconds.
-.SS [sync]
-.TP
-.B lock_timeout
-Engine lock timeout, default 60 seconds.
-.TP
-.B max_restarts
-Maximum engine restarts after changing inputs, default 3.
-.SS [launch]
-.TP
-.B default_app
-Application launched by
-.BR run ;
-default
-.BR keepassxc .
-.TP
-.B confirm_without_cloud
-Boolean controlling launch confirmation if cloud access fails; default false.
-.TP
-.B quit_on_last_drive
-Quit wrapper-launched applications after the last drive detaches; default
-true.
-.SS [apps.NAME]
-Application-specific
-.BR command ,
-.BR process ,
-.BR reloads ,
-and
-.B single_instance
-settings. Commands are argument arrays. KeePassXC and keepass-legacy are
-predefined.
 .SH SEE ALSO
 .BR kp-sync (1),
+.BR rclone (1),
+.BR keepassxc-cli (1),
 .BR systemd-run (1),
 .BR systemctl (1),
 .BR journalctl (1)

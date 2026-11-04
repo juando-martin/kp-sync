@@ -388,7 +388,7 @@ class RcloneEndpointTest(unittest.TestCase):
             patch(
                 "kp_sync.endpoints.rclone.time.monotonic", side_effect=[1, 3.5]
             ),
-            patch("kp_sync.endpoints.rclone.info") as log,
+            patch("kp_sync.endpoints.rclone.detail") as log,
         ):
             with self.assertRaises(EndpointUnavailable):
                 self.endpoint.probe()

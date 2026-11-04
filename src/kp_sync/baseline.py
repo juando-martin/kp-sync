@@ -12,7 +12,7 @@ from kp_sync.drives import DriveEndpoint
 from kp_sync.endpoints.base import EndpointUnavailable
 from kp_sync.endpoints.file import FileEndpoint
 from kp_sync.kdbx import KdbxError, inspect_kdbx
-from kp_sync.log import error, info
+from kp_sync.log import detail, error, info
 from kp_sync.paths import atomic_write, ensure_private_directory
 from kp_sync.state import HistoryState, StateError, merge_states
 
@@ -487,7 +487,7 @@ class BaselineManager:
                 try:
                     found = store.fetch(f"bases/{sha}.kdbx", downloaded)
                 except EndpointUnavailable as exc:
-                    info(f"base {sha} unavailable from {store.name}: {exc}")
+                    detail(f"base {sha} unavailable from {store.name}: {exc}")
                     continue
                 if not found:
                     continue
@@ -637,7 +637,7 @@ class BaselineManager:
         if upload:
             # One call for all bases; they still precede the state.
             _put_bases(store, upload, temporary)
-            info(f"{store.name}: uploaded {len(upload)} missing base(s)")
+            detail(f"{store.name}: uploaded {len(upload)} missing base(s)")
         return lost
 
     def prefetch_bases(
@@ -675,7 +675,7 @@ class BaselineManager:
                         store, [f"{sha}.kdbx" for sha in remaining], directory
                     )
                 except EndpointUnavailable as exc:
-                    info(f"bases unavailable from {store.name}: {exc}")
+                    detail(f"bases unavailable from {store.name}: {exc}")
                     continue
                 for sha in list(remaining):
                     if f"{sha}.kdbx" not in found:

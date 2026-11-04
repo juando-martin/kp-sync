@@ -25,7 +25,7 @@ command is a short client that sends it a request over a Unix socket.
   triggers, and owns the UI; every decision about copies is made by the
   sync engine, the same code `--no-daemon` runs. Time, systemd and D-Bus
   are reached through small interfaces, so the daemon is tested with a
-  fake clock and fakes of both. `kp-sync daemon --foreground --debug`
+  fake clock and fakes of both. `kp-sync daemon --debug`
   runs it in a terminal for debugging (after stopping the service).
   Without systemd, a client that finds no socket starts the daemon itself
   with `setsid`. `--no-daemon` runs the engine in-process (tests,

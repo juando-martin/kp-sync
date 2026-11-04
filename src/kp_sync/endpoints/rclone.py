@@ -20,7 +20,7 @@ from kp_sync.endpoints.base import (
     EndpointUnavailable,
     new_hash,
 )
-from kp_sync.log import info
+from kp_sync.log import detail
 from kp_sync.paths import atomic_write
 
 
@@ -248,7 +248,7 @@ class RcloneEndpoint(Endpoint):
             error = EndpointMissing if exc.missing else EndpointUnavailable
             raise error(f"{self.name}: rcd request failed") from exc
         finally:
-            info(
+            detail(
                 f"rclone {argv[1]} for {self.name} via rcd: "
                 f"{time.monotonic() - started:.3f}s ({outcome})"
             )
@@ -297,7 +297,7 @@ class RcloneEndpoint(Endpoint):
                 if argv[0] == "rclone" and len(argv) > 1
                 else "custom command"
             )
-            info(
+            detail(
                 f"rclone {operation} for {self.name}: "
                 f"{time.monotonic() - started:.3f}s "
                 f"({'ok' if succeeded else 'failed'})"

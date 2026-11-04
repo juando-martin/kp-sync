@@ -1,210 +1,715 @@
-.TH KP-SYNC 1 "2026-10-28" "kp-sync 0.1.2" "User Commands"
+.TH KP-SYNC 1 "2026-11-04" "kp-sync 0.3.1" "User Commands"
 .SH NAME
 kp-sync \- synchronize KeePass copies and manage access sessions
 .SH SYNOPSIS
 .B kp-sync
 [\fB\-\-config\fR \fIFILE\fR | \fB\-\-profile\fR \fINAME\fR]
-[\fB\-\-ui\fR \fIMODE\fR] [\fIOPTIONS\fR] \fICOMMAND\fR [\fIARGS\fR ...]
+[\fB\-\-ui\fR \fIMODE\fR] [\fB\-\-no\-wait\fR] [\fB\-\-no\-daemon\fR]
+[\fB\-\-verbose\fR] [\fB\-\-debug\fR]
+\fICOMMAND\fR [\fICOMMAND-OPTIONS\fR] [\fIARGS\fR ...]
+.br
+.B kp-sync \-\-version
+.br
+.B kp-sync
+\fICOMMAND\fR \fB\-\-help\fR
 .SH DESCRIPTION
 .B kp-sync
-synchronizes KeePass database copies through a local hub, a version history,
-and verified promotion or merge. Normal commands contact the per-profile
-daemon. Use
-.B \-\-no-daemon
-for direct engine operations where supported.
+keeps one KeePass database consistent across several copies: a local
+.I hub
+file that applications open, cloud remotes reached through
+.BR rclone (1),
+removable drives, fixed files, custom commands and temporary remote sessions.
+Each copy is compared with a shared version history by content hash, not by
+modification time. A single changed copy is promoted to the others; several
+changed copies are merged field by field against their common ancestor.
+Every candidate is verified before it is written, and every overwrite is
+preceded by a backup.
 .PP
-The default configuration is
-.IR ~/.config/kp-sync/config.toml .
-The
+Most commands are short clients of a per-profile
+.I daemon
+that runs only while something needs it (an application, a drive, a session
+or a pending decision) and is started on demand through a systemd user
+socket. The daemon serializes synchronizations and asks the user questions
+on the terminal or desktop.
+.B \-\-no\-daemon
+runs the same engine directly in the current process where supported.
+.PP
+Configuration is read from
+.I ~/.config/kp-sync/config.toml
+by default; see
+.BR kp-sync-config (5)
+for every setting. A
+.I profile
+is an independent configuration with its own hub, runtime directory,
+daemon and password cache, selected with
+.BR \-\-profile .
+.SH GLOBAL OPTIONS
+Global options are written before the command name.
+.TP
+.BI \-\-config " FILE"
+Read configuration from
+.I FILE
+instead of the default file. The file must exist. Runtime state still
+belongs to the default profile; use
 .B \-\-profile
-option loads
-.IR ~/.config/kp-sync/NAME.toml .
-The mutually exclusive
-.B \-\-config
-option selects an explicit TOML file.
-.SH COMMANDS
+for an independent instance. Cannot be combined with
+.BR \-\-profile .
 .TP
-.B daemon [\-\-foreground] [\-\-debug]
-Run the per-profile synchronization daemon.
-.TP
-.B run [\-\-raise-existing] [\-\-app NAME] [\-\- ARGS ...]
-Synchronize, start or raise an application, and hold its lease.
-An existing single instance is activated without pre-sync; a new instance
-pre-syncs before launch. Drive-triggered
-.B up
-still synchronizes when an application is running.
-.TP
-.B up [\-\-drive-id ID] [MOUNTPOINT]
-Attach an optional drive and start the default application.
-.TP
-.B attach [\-\-drive-id SERIAL:FS_UUID] MOUNTPOINT
-Register and synchronize a removable drive.
-.TP
-.B detach [\-\-drive-id ID] [MOUNTPOINT]
-Release a drive lease.
-.TP
-.B sync [\-\-dry-run] [\-\-no-daemon]
-Synchronize configured copies, or classify them without writes with
-.BR \-\-dry-run .
-.TP
-.B resolve
-Retry pending user decisions.
-.TP
-.B eject
-Perform a final synchronization and unmount the drive.
-.TP
-.B down [\-\-drive-id ID]
-Detach a drive and, when configured and idle, stop the application and clean
-runtime state.
-.TP
-.B drive-sync up|down \-\-mode main|secondary \-\-drive-id SERIAL:FS_UUID [MOUNTPOINT]
-Submit a udevmon drive event to the daemon (up/down on the main laptop,
-attach/detach otherwise) without waiting for synchronization. The rclone
-credentials are provided separately and never touched.
-.TP
-.B session [\-w] [\-\-unconfined] USER@HOST[:PATH]
-Open a foreground confined SSH/sshfs session to the staged database.
-The optional
-.B \-w
-enables a read-write session.
-.TP
-.B service start|stop|status ssh-session|access-owner NAME
-Manage a named SSH session or
-.BR kp-access-owner .
-Names are configured in
-.BR kp-sync-config (5).
-Managed services survive terminal closure and write logs to the systemd user
-journal. Stopping an SSH session revokes its key and completes its post-sync.
-.TP
-.B service start|stop|restart|status daemon
-Manage the installed default or selected profile daemon unit directly.
-Start/restart verify control-socket readiness; status never activates it.
-Status also reports each socket/path/timer's active and enabled state.
-Stop leaves socket/path/timer activation enabled, so a trigger can restart
-the daemon. Unsupported custom configuration mappings are rejected.
-.TP
-.B service enable|disable daemon [\-\-now]
-Enable configured installed activation units, or disable all profile
-socket/path/timer activation. Enable does not install or rewrite files.
-Without \-\-now, running units are unchanged. With \-\-now, enable starts
-triggers; disable stops triggers and idle-sync clients before gracefully
-stopping the daemon. Explicit requests and desktop/udev launchers can still
-start a disabled daemon; this is not masking or application suspension.
-.TP
-.B service uninstall daemon [\-\-desktop]
-Disable and stop as above, then remove selected-profile generated unit files
-and reload systemd. Keep shared templates, other profiles, drop-ins,
-configuration, databases and runtime recovery data. Desktop entries are
-removed only with \-\-desktop. Modified, unsafe or other-profile files are
-refused; failures may leave partial progress. Avoid concurrent client requests.
-.TP
-.B access-op
-Handle one authenticated kp-access file operation; intended as the
-.B \-\-file-op-cmd
-helper, not for interactive use.
-.TP
-.B restore [\-\-merge | \-\-replace] (--version SHA | --backup NAME | --file PATH) [--dry-run]
-Restore older content, merging by default.
-.TP
-.B history
-List retained database versions and current-boot backups.
-.TP
-.B retire-session [\-\-identity ID] [\-\-confirm ID]
-Preview historical session identities, or retire one identity after exact
-confirmation and runtime checks. Preview reads available shared history and
-may contact configured baseline stores, but does not mutate history. Apply
-requires
-.B \-\-confirm
-to exactly match
-.BR \-\-identity .
-Database copies are not deleted; deferred or failed publication is reported.
-.TP
-.B forget
-Revoke this profile's cached passwords.
-Does not disable a configured KeePassXC source or revoke its association.
-.TP
-.B keepassxc-disconnect
-Remove local KeePassXC browser pairing for this host/profile without
-contacting KeePassXC. Revoke the connection in KeePassXC to remove remote
-authorization. A later interactive credential request may ask to pair again.
-.TP
-.B status [\-\-long] [\-\-json]
-Show cached state in grouped persistent-copy and session blocks, with
-recorded synchronization ages, leases, and pending decisions. Status does
-not probe endpoints. Text hashes use at least 12 characters, extended to
-distinguish recorded versions.
-.B \-\-long
-shows full hashes; JSON always preserves full hashes.
-.TP
-.B cleanup [\-\-store NAME | \-\-runtime] [\-\-apply] [\-\-confirm-writers-paused]
-Preview obsolete bases in configured attached stores and the runtime cache,
-or select one scope. Report candidate bytes, protected files, blockers and
-partial errors as JSON. Apply requires an explicit scope. Shared apply also
-requires confirmation that all other shared-history writers remain paused
-throughout the operation, including other hosts and profiles.
-The confirmation flag does not pause them automatically.
-Only recognized base files absent from all available history are deleted;
-retained versions and disconnected-copy ancestry remain protected.
-History and database copies are never rewritten; base contents are not
-downloaded for cleanup. Pending/recovery work or unavailable history blocks
-apply. Cleanup bypasses automatic deletion batching. Local locks and remote
-rechecks cannot replace the paused-writer requirement on Google Drive.
-.TP
-.B service install daemon [\-\-desktop]
-Install or refresh selected-profile user units and required shared templates,
-then reload systemd without enabling or starting units. Add desktop
-menu/autostart entries only with \-\-desktop. Enable activation separately
-with service enable daemon [\-\-now]. The old install-units command is removed.
-.TP
-.B doctor [\-\-self-test]
-Check local integration and configured dependencies; some checks probe
-external endpoints. The explicit self-test uses a temporary restricted
-localhost SSH key and synthetic data.
-.TP
-.B \-\-version
-Print the package version without loading configuration or contacting
-services.
-.SH OPTIONS
+.BI \-\-profile " NAME"
+Use the named profile
+.IR ~/.config/kp-sync/NAME.toml ,
+which must exist.
+.I NAME
+starts with a letter or digit and contains only letters, digits,
+.B _
+and
+.BR \- .
+A named profile has its own runtime directory
+.RI ( $XDG_RUNTIME_DIR/kp-sync-NAME/ ),
+default hub
+.RI ( $XDG_RUNTIME_DIR/NAME/pass.kdbx ),
+daemon instance, control socket and password keyring entry. Without this
+option (and without
+.BR \-\-config ),
+the default profile is used.
 .TP
 .BI \-\-ui " MODE"
-Select
-.BR auto ,
-.BR tty ,
-.BR gui ,
+How to ask the user questions (merge decisions, passwords, conflict
+review, confirmations). Overrides
+.B [ui].mode
+for this command.
+.RS
+.TP
+.B auto
+Use the terminal when standard input is a terminal, otherwise the desktop
+when
+.B DISPLAY
 or
+.B WAYLAND_DISPLAY
+is set, otherwise
 .BR none .
+This is the default.
 .TP
-.B \-\-no-wait
-Return after the daemon accepts a supported request.
+.B tty
+Ask on the terminal of the waiting client.
 .TP
-.B \-\-no-daemon
-Run supported synchronization operations in-process.
+.B gui
+Ask with desktop dialogs chosen by
+.BR [ui].gui ,
+shown by the daemon.
 .TP
-.B \-\-raise-existing
-For
+.B none
+Never ask. Every question takes its safe answer: nothing is overwritten,
+the decision is recorded as pending, and the command exits with status 3.
+Use
+.B kp-sync resolve
+later to answer it.
+.RE
+.TP
+.B \-\-no\-wait
+For commands that send a request to the daemon, return as soon as the
+daemon has accepted it instead of waiting for the synchronization result.
+The exit status then only reports acceptance. Also accepted after the
+command name for
+.BR sync ,
+.BR resolve ,
 .BR run ,
-raise an already-running KeePassXC window even when standard input is not a
-terminal. A new instance is still started by the daemon.
+.BR eject ,
+.BR up ,
+.BR down ,
+.B attach
+and
+.BR detach .
+.BR up ,
+.BR down ,
+.B attach
+and
+.B detach
+never wait, with or without this option.
 .TP
-.BI \-\-identity " ID"
-For
-.BR retire-session ,
-select the exact session history identity to preview or retire.
-.TP
-.BI \-\-confirm " ID"
-For
-.BR retire-session ,
-apply retirement only when this value exactly matches
-.BR \-\-identity .
+.B \-\-no\-daemon
+Run the synchronization engine in this process under a file lock instead
+of contacting the daemon. Supported by
+.BR sync ,
+.B resolve
+and
+.BR restore .
+The lock wait is limited by
+.BR [sync].lock_timeout .
+Useful for scripts, debugging and machines without the systemd units. Also
+accepted after the command name for
+.B sync
+and
+.BR resolve .
 .TP
 .B \-\-verbose
-Show informational messages.
+Also show routine
+.B INFO:
+messages on a terminal: rclone timings, credential-copy and
+.B rclone rcd
+housekeeping, and fallbacks such as starting a private daemon. Without it,
+a command run from a terminal shows only results, warnings
+and errors. Messages are never hidden when standard error is not a
+terminal, nor for
+.BR daemon ,
+.BR access\-op ,
+.BR drive\-sync ,
+.B sftp\-serve
+and the internal service runner, whose output is collected by the journal,
+.B udevmon
+or
+.BR kp\-access\-owner .
 .TP
 .B \-\-debug
-Enable debug output.
+Show
+.B DEBUG:
+messages that explain decisions, and imply
+.BR \-\-verbose :
+how long the sync lock took to acquire, each copy's state with short
+observed and recorded hashes and how it was observed, restarts caused by
+copies changing during a run, the outcome, and the duration and result of
+configured commands and the
+.B keepassxc-cli
+check. Passwords, command argument lists and command output are never
+shown. It affects only the process it is given to: for
+daemon-backed commands most work happens in the daemon, so debug the
+daemon itself (see
+.B daemon
+and
+.BR KP_SYNC_DEBUG ),
+or use
+.B \-\-no\-daemon
+to run the engine in this process.
 .TP
-.B \-h, \-\-help
-Show command help.
+.B \-\-version
+Print the package version and exit without loading configuration or
+contacting the daemon or any endpoint.
+.TP
+.BR \-h ", " \-\-help
+Show a summary of options. After a command name, show that command's
+options.
+.SH COMMANDS
+.SS "Applications and synchronization"
+.TP
+\fBrun\fR [\fB\-\-app\fR \fINAME\fR] [\fB\-\-raise\-existing\fR] [\fB\-\-no\-wait\fR] [[\fB\-\-\fR] \fIARGS\fR ...]
+Synchronize the hub, start an application on it and hold a
+.I lease
+for as long as the application runs, so the daemon syncs each save and
+performs a final
+.I post-sync
+when it exits. This is the command behind the KeePassXC menu entry,
+autostart and launcher scripts.
+.RS
+.PP
+Before launch the daemon
+.I pre-syncs
+for up to
+.B [daemon].prestart_timeout
+seconds. If that takes longer and a hub exists, the application starts on
+the existing hub and the user is notified (or asked, with
+.BR [launch].confirm_without_cloud ).
+If no hub exists yet, the launch waits for the first download to finish.
+If no copy is reachable at all, the application is not started, so it is
+never left to create an empty database. Each application runs in its own
+transient systemd user unit
+.RB ( kp-sync-app-NAME ),
+so closing the terminal does not end it.
+.TP
+.BI \-\-app " NAME"
+Application to start, from the built-in
+.B keepassxc
+and
+.B keepass-legacy
+definitions or a configured
+.B [apps.NAME]
+table. Default:
+.BR [launch].default_app .
+.TP
+.B \-\-raise\-existing
+When a single-instance application such as KeePassXC is already running,
+activate its window even though standard input is not a terminal (for
+example from a desktop launcher). An already-running single instance is
+activated without a pre-sync; a new instance is still started by the
+daemon.
+.TP
+.I ARGS
+Extra arguments passed to the application after its configured command
+(or to the running instance of a single-instance application). A leading
+.B \-\-
+separates them from kp-sync options and is removed. Without
+.IR ARGS ,
+the built-in
+.B keepassxc
+and
+.B keepass-legacy
+applications are given the hub path.
+.RE
+.TP
+\fBsync\fR [\fB\-\-dry\-run\fR] [\fB\-\-no\-daemon\fR] [\fB\-\-no\-wait\fR]
+Probe every configured and attached copy, classify each one against the
+history, and promote or merge as needed. Prints the outcome, the current
+version and the state of each copy:
+.RS
+.TP
+.B unchanged
+Holds the current version (or a plain re-save of it).
+.TP
+.B stale
+Holds an older known version; it is overwritten with the current one
+without needing the password.
+.TP
+.B changed
+Holds new content derived from a known version; it is promoted, or merged
+when other copies changed too.
+.TP
+.B diverged
+Holds a known version on another branch of the history; it is merged with
+the current version, never overwritten.
+.TP
+.B new
+Holds content with no history record (for example an old drive). It is
+never promoted: it is overwritten only if its content is already contained
+in the current version, otherwise merged without undoing deletions.
+.TP
+.B missing
+Could not be reached. It is listed as
+.I unreachable
+and retried on the next run; nothing is queued for it.
+.PP
+Options:
+.TP
+.B \-\-dry\-run
+Probe and classify copies with fresh endpoint contact, but write no copy
+and no shared history. Use this to see what a real sync would do.
+.TP
+.B \-\-no\-daemon
+As the global option: run in this process.
+.RE
+.TP
+\fBresolve\fR [\fB\-\-no\-daemon\fR] [\fB\-\-no\-wait\fR]
+Retry the decisions recorded as pending (merges that need a password or a
+conflict review, unknown copies, large entry drops, ...), asking on this
+terminal or desktop according to
+.BR \-\-ui .
+The daemon also retries them on its own whenever a display is available.
+.TP
+\fBrestore\fR [\fB\-\-merge\fR | \fB\-\-replace\fR] (\fB\-\-version\fR \fISHA\fR | \fB\-\-backup\fR \fINAME\fR | \fB\-\-file\fR \fIPATH\fR) [\fB\-\-dry\-run\fR]
+Bring back older content and commit the result as a new version, so no
+copy treats it as stale. Putting an old file back by hand does not work:
+the next sync overwrites it or takes only its newer entries. Restoring
+needs the password, shows what will change and asks for confirmation; the
+large-drop check of
+.B [verify]
+applies. Restore is deferred if a reachable copy has unsynchronized
+changes; run
+.B kp-sync sync
+first. Exactly one source is required:
+.RS
+.TP
+.BI \-\-version " SHA"
+A version still kept in the history, by its full SHA-256 as shown by
+.B kp-sync history
+or
+.BR "kp-sync status \-\-long" .
+Abbreviated hashes are not accepted.
+.TP
+.BI \-\-backup " NAME"
+A runtime backup file name, as listed by
+.BR "kp-sync history" .
+Runtime backups exist only for the current boot.
+.TP
+.BI \-\-file " PATH"
+Any KDBX file, for example a revision downloaded by hand from the cloud
+provider's version history or a rescue file from a drive.
+.PP
+The mode selects how it is applied:
+.TP
+.B \-\-merge
+(default) Open the conflict review with entries missing from the current
+database (including deleted ones) and entries that differ; the user picks
+what to bring back, field by field. Nothing is removed from the current
+database. Recovered entries get a new modification time.
+.TP
+.B \-\-replace
+Make the selected content the current database everywhere. Entries and
+groups are given new modification times and later deletions are dropped
+from its deletion records, so copies holding newer content cannot win a
+later merge.
+.TP
+.B \-\-dry\-run
+Show what would change without writing anything.
+.RE
+.TP
+.B history
+List the versions retained in the history (date, host, parents, and the
+entry count when the password is cached) and the runtime backups of the
+current boot. It may contact the configured baseline stores to load
+shared history.
+.TP
+\fBstatus\fR [\fB\-\-long\fR] [\fB\-\-json\fR]
+Show the cached state: one block per persistent copy (cloud, drive, hub,
+file) and per session, with recorded version, identity and the time and
+age of its last synchronization; then pending decisions and leases.
+Status never probes endpoints: it shows what the last synchronization
+recorded, not whether a copy is reachable now. Use
+.B sync \-\-dry\-run
+for fresh observations. When the daemon is running it is asked for its
+live state; otherwise the runtime directory is read.
+.RS
+.TP
+.B \-\-long
+Show full SHA-256 hashes. By default hashes are shortened to 12 hexadecimal
+characters, or more where needed to tell recorded versions apart. Short
+hashes are for display only.
+.TP
+.B \-\-json
+Print one JSON object with full hashes and machine-readable identities,
+for scripts.
+.PP
+Exits with status 10 when the recorded state says a synchronization would
+change something.
+.RE
+.TP
+.B forget
+Revoke this profile's cached passwords from the kernel keyring: the main
+password and any alternate-copy passwords. Does not disable a configured
+KeePassXC credential source or remove its pairing.
+.TP
+.B keepassxc\-disconnect
+Remove this host and profile's local KeePassXC browser-protocol pairing,
+without contacting KeePassXC. Also revoke the connection in KeePassXC to
+remove the authorization there. A later interactive credential request may
+ask to pair again.
+.SS "Removable drives"
+A drive is identified by
+.IR SERIAL:FS_UUID ,
+its hardware serial number plus filesystem UUID. The mount path is ignored
+for identity, since all drives may mount at the same place. When
+.B \-\-drive\-id
+is omitted, the identity is looked up with
+.BR lsblk (8)
+from the mount point. A drive is used through the configured
+.B source = "runtime"
+file endpoint; its database is
+.IR MOUNTPOINT/[drives].directory/db_name .
+These commands return once the daemon has accepted the request.
+.TP
+\fBattach\fR [\fB\-\-drive\-id\fR \fISERIAL:FS_UUID\fR] \fIMOUNTPOINT\fR
+Register a mounted drive, take a lease for it and synchronize the hub, the
+cloud and the drive. The drive stays current while attached, so it can be
+removed at any moment. Used on machines whose drive is a secondary copy.
+.TP
+\fBdetach\fR [\fB\-\-drive\-id\fR \fIID\fR] [\fIMOUNTPOINT\fR]
+Release a drive's lease, usually after it has already been removed, and
+warn if it missed a synchronization that was due.
+.TP
+\fBup\fR [\fB\-\-drive\-id\fR \fIID\fR] [\fB\-\-app\fR \fINAME\fR] [\fIMOUNTPOINT\fR]
+.B attach
+the drive when a mount point is given, then
+.B run
+the default (or selected) application. Idempotent: a repeated event does
+not start a second application. A drive-triggered
+.B up
+synchronizes even when the application is already running. Used on the
+main laptop, where inserting the key drive starts the password manager.
+.TP
+\fBdown\fR [\fB\-\-drive\-id\fR \fIID\fR] [\fIMOUNTPOINT\fR]
+.B detach
+the drive. When no drive remains and
+.B [launch].quit_on_last_drive
+is true, also quit the applications started by
+.B up
+(which runs their post-sync), then remove the runtime hub and runtime
+files, including kp-sync's private rclone credential copy. A persistent
+hub is never removed. A hub whose content exists on no other copy is never
+deleted: it and any pending decision are kept and the user is warned.
+.TP
+\fBeject\fR [\fB\-\-drive\-id\fR \fIID\fR] [\fIMOUNTPOINT\fR]
+Run a final synchronization including the drive, then unmount it: the
+clean way to remove a drive. With
+.B quit_on_last_drive
+and no other drive attached, also does what
+.B down
+does.
+.TP
+\fBdrive\-sync\fR \fBup\fR|\fBdown\fR \fB\-\-mode\fR \fBmain\fR|\fBsecondary\fR \fB\-\-drive\-id\fR \fISERIAL:FS_UUID\fR [\fIMOUNTPOINT\fR]
+Action for
+.BR udevmon :
+validate the drive identity and submit the event to the daemon without
+waiting for synchronization.
+.RS
+.TP
+.B \-\-mode main
+The drive holds the main copy: the event becomes
+.B up
+or
+.BR down .
+.TP
+.B \-\-mode secondary
+The drive is an additional copy: the event becomes
+.B attach
+or
+.BR detach .
+.PP
+Both
+.B \-\-mode
+and
+.B \-\-drive\-id
+are required. An
+.B up
+event leaves a short-lived marker that reserves the hub until the daemon
+has registered the drive, so a quick re-insertion during a slow
+.B down
+cannot lose data. The rclone credential file is never touched.
+.RE
+.SS "Remote sessions and kp-access"
+.TP
+\fBsession\fR [\fB\-w\fR] [\fB\-\-unconfined\fR] [\fIUSER\fR@]\fIHOST\fR[:\fIPATH\fR]
+Open an interactive SSH connection to
+.I HOST
+and let it mount the current database with
+.BR sshfs (1)
+through a reverse tunnel, while the session runs in the foreground. The
+current hub and key file are staged without a cloud pre-sync. A
+per-session key is added to
+.I ~/.ssh/authorized_keys
+restricted to localhost, with an expiry
+.RB ( [sessions].session_key_ttl ),
+and a forced command serving only the staged directory; agent forwarding
+is not used. When the session ends, remote changes are synchronized and
+the key is removed.
+.I PATH
+is the remote mount directory (default
+.BR [sessions].mount_dir ).
+Requires
+.BR "[sessions] enabled = true" .
+.RS
+.TP
+.B \-w
+Read-write session: remote saves are synchronized back as changes from a
+foreign writer. Without it the mount is read-only, unless
+.B [sessions].default_mode
+is
+.BR rw .
+.TP
+.B \-\-unconfined
+Serve the SFTP session without
+.BR bwrap (1)
+confinement. Not recommended; use only when bwrap is unavailable.
+.RE
+.TP
+\fBservice\fR \fBstart\fR|\fBstop\fR|\fBstatus\fR \fBssh\-session\fR|\fBaccess\-owner\fR \fINAME\fR
+Manage a named SSH session
+.RB ( [ssh_sessions.NAME] )
+or
+.B kp-access-owner
+process
+.RB ( [access_owners.NAME] )
+as a transient systemd user service. It survives closing the terminal but
+not logout or reboot unless the user manager lingers. Logs go to the user
+journal. Stopping an SSH session revokes its key and completes its
+post-sync. See
+.B NAMED SERVICES
+below.
+.TP
+.B access\-op
+Handle one authenticated kp-access file operation (upload, delete, move)
+and its BEGIN/END lease. Intended only as the
+.B \-\-file\-op\-cmd
+helper of
+.BR kp-access ,
+not for interactive use. It re-validates every path itself.
+.TP
+\fBsftp\-serve\fR \fIID\fR
+Forced command of a session key: run
+.B sftp-server
+confined to that session's staging directory. Internal; not for direct
+use.
+.SS "Daemon and installation"
+.TP
+\fBdaemon\fR [\fB\-\-foreground\fR] [\fB\-\-debug\fR]
+Run the per-profile daemon. Normally started by the systemd user service;
+run it by hand only for debugging, with the service stopped. It always
+stays in the foreground and writes its messages to standard error.
+.RS
+.TP
+.B \-\-debug
+Also write
+.B DEBUG:
+messages, as the global option, including each request received (with its
+field names, not their values) and how synchronization requests are queued
+or joined.
+.TP
+.B \-\-foreground
+Accepted for compatibility; the daemon never detaches by itself.
+.RE
+.TP
+\fBservice\fR \fBstart\fR|\fBstop\fR|\fBrestart\fR|\fBstatus\fR \fBdaemon\fR
+Manage the installed daemon unit of the default profile, or of the profile
+selected by
+.BR \-\-profile ,
+directly through systemd. Takes no
+.IR NAME .
+.B start
+and
+.B restart
+wait until the control socket answers.
+.B status
+never starts the daemon and also shows whether each activation unit
+(socket, hub path, idle-sync timer) is active and enabled.
+.B stop
+leaves activation enabled, so a later trigger can start the daemon again.
+A
+.B \-\-config
+file without a matching installed profile unit is rejected.
+.TP
+\fBservice\fR \fBenable\fR|\fBdisable\fR \fBdaemon\fR [\fB\-\-now\fR]
+.B enable
+turns on the installed activation units selected by configuration: the
+control socket, the hub path unit
+.RB ( [daemon].hub_path_unit )
+and the idle-sync timer
+.RB ( [daemon].idle_sync ).
+It does not install or rewrite files.
+.B disable
+turns all three off, including ones no longer selected. Disabling is not
+masking: explicit commands and desktop or udev launchers can still start
+the daemon.
+.RS
+.TP
+.B \-\-now
+Also apply the change to running units. With
+.BR enable ,
+start the triggers (not the daemon itself). With
+.BR disable ,
+stop the triggers, then any idle-sync client, then stop the daemon
+gracefully. Without it, running units are left as they are.
+.RE
+.TP
+\fBservice\fR \fBinstall\fR \fBdaemon\fR [\fB\-\-desktop\fR]
+Write or refresh this profile's systemd user units and the shared
+templates they need, then reload systemd. Nothing is enabled or started;
+use
+.B service enable daemon
+afterwards. Updated files can affect units that are already active.
+.RS
+.TP
+.B \-\-desktop
+Also write this profile's application menu and autostart entries, which
+launch through
+.BR "kp-sync run" .
+.RE
+.TP
+\fBservice\fR \fBuninstall\fR \fBdaemon\fR [\fB\-\-desktop\fR]
+Disable and stop as
+.B disable \-\-now
+does, then remove this profile's generated unit files and reload systemd.
+Shared templates, other profiles, drop-ins, configuration, databases and
+runtime recovery data are kept. Modified, unsafe or other-profile files
+are refused; a failure may leave partial progress, which is reported.
+Avoid issuing other requests at the same time.
+.RS
+.TP
+.B \-\-desktop
+Also remove this profile's menu and autostart entries; they are kept
+otherwise.
+.RE
+.TP
+\fBdoctor\fR [\fB\-\-self\-test\fR]
+Check the installation and print one
+.BR OK ,
+.B WARNING
+or
+.B ERROR
+line per check: units installed and enabled, daemon socket and protocol
+version, the desktop entry still calling
+.BR "kp-sync run" ,
+KeePassXC's automatic reload option, key file readable, rclone remotes and
+probes, hub encryption when required, keyring sharing with the daemon,
+swap encryption and, for sessions,
+.BR bwrap ,
+.BR sftp-server ,
+.I authorized_keys
+permissions, stale session keys and the local sshd. Some checks contact
+configured endpoints. Exits 1 if any check fails.
+.RS
+.TP
+.B \-\-self\-test
+Also authorize a five-minute restricted localhost key and perform a
+confined SFTP upload and download with synthetic data. Only the test's own
+key and files are removed afterwards; the database and key file are not
+used. This detects shell startup output that breaks SFTP.
+.RE
+.SS "History maintenance"
+These commands print a JSON report and change nothing unless an explicit
+apply option is given. Applying to shared history requires
+.BR \-\-confirm\-writers\-paused :
+by giving it, you confirm that every other kp-sync writing the same history
+(other hosts and other profiles) stays stopped for the whole operation.
+The option does not pause them; local locks cannot protect against them on
+cloud storage.
+.TP
+\fBcleanup\fR [\fB\-\-store\fR \fINAME\fR | \fB\-\-runtime\fR] [\fB\-\-apply\fR] [\fB\-\-confirm\-writers\-paused\fR]
+Preview obsolete base files (stored database versions that no retained
+history refers to) in the attached baseline stores and the runtime cache,
+with their size, protected files, blockers and errors. Retained versions
+and the ancestry of disconnected copies are always protected; history and
+database copies are never rewritten. Pending or recovery work, or
+unavailable history, blocks applying. Exits 1 if the report lists errors.
+.RS
+.TP
+.BI \-\-store " NAME"
+Limit the operation to one configured baseline store (endpoint name from
+.BR [baseline].stores ).
+.TP
+.B \-\-runtime
+Limit the operation to the local runtime cache of bases.
+.TP
+.B \-\-apply
+Delete the previewed files. Requires
+.B \-\-store
+or
+.BR \-\-runtime ;
+with
+.B \-\-store
+also requires
+.BR \-\-confirm\-writers\-paused .
+.TP
+.B \-\-confirm\-writers\-paused
+See above.
+.RE
+.TP
+\fBrepair\-history\fR [\fB\-\-apply\fR \fB\-\-confirm\-writers\-paused\fR]
+Preview retained versions whose base file is missing from the available
+history stores, and whether each can be recovered from another store or
+cache.
+.RS
+.TP
+.B \-\-apply
+Restore recoverable bases and remove versions whose base exists nowhere.
+Requires
+.BR \-\-confirm\-writers\-paused .
+.RE
+.TP
+\fBretire\-session\fR [\fB\-\-identity\fR \fIID\fR] [\fB\-\-confirm\fR \fIID\fR]
+Remove the records of old session copies from the history, so they no
+longer appear in status or protect old versions. Database copies are not
+deleted.
+.RS
+.TP
+.BI \-\-identity " ID"
+Preview only this exact session identity. Without any option, list every
+historical session identity and whether it is eligible. The preview reads
+the available shared history (it may contact baseline stores) but changes
+nothing.
+.TP
+.BI \-\-confirm " ID"
+Retire the identity given with
+.BR \-\-identity .
+The value must match it exactly. Runtime evidence is rechecked under lock
+before anything changes. Exits 3 if a shared store could not be updated;
+the local record then publishes it later.
+.RE
 .SH NAMED SERVICES
 Define SSH sessions with
 .B [ssh_sessions.NAME]
@@ -223,10 +728,11 @@ target = "user@host:~/kp"
 mode = "rw"
 
 [access_owners.windows]
-command = ["/path/to/venv/bin/kp-access-owner", "--config", "/path/to/owner.toml"]
+command = ["/path/to/venv/bin/kp-access-owner", "\-\-config", "/path/to/owner.toml"]
 .fi
 .PP
 Then use
+.PP
 .nf
 kp-sync service start ssh-session office
 kp-sync service status ssh-session office
@@ -237,7 +743,57 @@ The same commands accept
 .B access-owner
 as the resource type. Service commands use systemd user services and do not
 require an interactive terminal. The owner command is an argv array and is
-never interpreted by a shell.
+never interpreted by a shell. Shell completion offers the configured names.
+.SH ENVIRONMENT
+.TP
+.B XDG_RUNTIME_DIR
+Location of the default hub and of all private runtime state. Required
+unless
+.B hub
+is configured.
+.TP
+.B KP_SYNC_DEBUG
+Any value other than empty,
+.BR 0 ,
+.BR false ,
+.B no
+or
+.B off
+enables
+.B \-\-debug
+for every kp-sync process that sees it. To debug the installed daemon, add
+it to the unit with
+.B systemctl \-\-user edit kp-sync.service
+(or
+.BR kp-sync@NAME.service
+for a profile):
+.RS
+.PP
+.nf
+[Service]
+Environment=KP_SYNC_DEBUG=1
+.fi
+.PP
+then restart the daemon and read the journal with
+.BR "journalctl \-\-user \-u kp-sync.service" .
+Remove the drop-in when done.
+.RE
+.TP
+.BR DISPLAY ", " WAYLAND_DISPLAY
+Select desktop dialogs in
+.B \-\-ui auto
+when standard input is not a terminal.
+.TP
+.B XDG_STATE_HOME
+Location of the KeePassXC pairing metadata, default
+.IR ~/.local/state .
+.TP
+.B XDG_CONFIG_HOME
+Where KeePassXC's settings are checked for its automatic reload option,
+default
+.IR ~/.config .
+.PP
+Passwords are never read from or passed through the environment.
 .SH SHELL COMPLETION
 Install the Python package
 .B argcomplete
@@ -246,28 +802,37 @@ shell startup file:
 .PP
 .nf
 Bash: eval "$(register-python-argcomplete kp-sync)"
-Zsh:  eval "$(register-python-argcomplete --shell zsh kp-sync)"
-Fish: register-python-argcomplete --shell fish kp-sync | source
+Zsh:  eval "$(register-python-argcomplete \-\-shell zsh kp-sync)"
+Fish: register-python-argcomplete \-\-shell fish kp-sync | source
 .fi
 .SH EXIT STATUS
+When several conditions apply, the first one listed among 1, 3 and 4 wins.
 .TP
 .B 0
-Command completed successfully or a request was accepted.
+Command completed successfully, all reachable copies are consistent, or a
+request was accepted with
+.BR \-\-no\-wait .
 .TP
 .B 1
-Operational failure; for
+Operational failure, including a daemon that cannot be reached or started;
+for
 .B service status
-this also means the named service is inactive.
+this also means the named service is inactive; for
+.B doctor
+a failed check.
 .TP
 .B 2
 Command-line usage error.
 .TP
 .B 3
-A synchronization decision is pending, or shared retirement publication is
-unavailable or failed.
+A synchronization decision is pending (see
+.BR resolve ),
+or shared retirement publication is unavailable or failed.
 .TP
 .B 4
-One or more synchronization endpoints are unreachable.
+One or more synchronization endpoints are unreachable. Endpoints marked
+.B optional
+do not count.
 .TP
 .B 10
 .B status
@@ -281,8 +846,25 @@ Default configuration.
 Named profile configuration.
 .TP
 .I $XDG_RUNTIME_DIR/kp-sync/
-Default profile's private runtime state. Named profiles use separate
-runtime directories.
+Default profile's private runtime state (mode 0700): local history copy
+.RI ( state.json ),
+cached bases, backups of the current boot, pending decisions, leases,
+sessions, and the control socket
+.IR control.sock .
+Named profiles use
+.IR $XDG_RUNTIME_DIR/kp-sync-NAME/ .
+.TP
+.I $XDG_RUNTIME_DIR/pass.kdbx
+Default hub of the default profile; named profiles use
+.IR $XDG_RUNTIME_DIR/NAME/pass.kdbx .
+.TP
+.I ~/.ssh/authorized_keys
+Receives one restricted, expiring line per open session, tagged
+.BR kp-sync-session-PROFILE-ID ;
+no other line is changed.
+.TP
+.I $XDG_STATE_HOME/kp-sync/
+KeePassXC pairing metadata; never passwords or database contents.
 .SH HTML DOCUMENTATION
 From a source checkout, install the optional docs extra in a separate Python
 environment and run
@@ -293,6 +875,9 @@ for a loopback-only preview. See docs/contributing.rst for developer checks.
 Documentation builds never activate profiles or contact endpoints.
 .SH SEE ALSO
 .BR kp-sync-config (5),
+.BR rclone (1),
+.BR keepassxc-cli (1),
+.BR sshfs (1),
 .BR systemctl (1),
 .BR journalctl (1)
 .SH AUTHORS
