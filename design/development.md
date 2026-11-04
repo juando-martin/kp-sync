@@ -187,4 +187,29 @@
 
 ## Open points
 
-- None at the moment.
+- **Command lines in debug output.** `--debug` cannot show which
+  external commands ran. rclone, configured `command` endpoints and the
+  `keepassxc-cli` check report only operation, duration and result;
+  ssh/sshfs and `systemd-run` report nothing. That follows the rule that
+  rclone logging never includes "its argument list, credentials or
+  command output" ([Baseline store](history-and-sync.md#baseline-store)),
+  which the Logging bullet in
+  [architecture](architecture.md#error-handling-and-safety) extends to
+  every command because configured commands may hold user secrets. It
+  makes failed or slow commands hard to diagnose. Options to decide:
+  1. Show the full argv of commands kp-sync generates itself (only
+     paths, remote names and fixed flags), and only the program name for
+     configured templates (`command` endpoints, custom rclone
+     `download`/`upload`/`probe`).
+  2. As 1, plus an explicit extra opt-in (for example
+     `KP_SYNC_DEBUG=commands`) that also shows configured commands in
+     full, with a warning in the man page.
+  3. Redact known secret-bearing flags (`--*-secret`, `--*token*`,
+     `--password`, ...) and show the rest. Fragile: unknown flags or
+     positional secrets leak.
+  Constraints for any option: never stdin (passwords) or command output;
+  daemon logs reach the journal, which is on permanent storage, so
+  argv there persists (paths such as the key file and private rclone
+  copy, remote names). Changing this updates the rclone logging rule,
+  Logging, the man page and the timing test in `tests/test_rclone.py`
+  that asserts timings carry no arguments.
