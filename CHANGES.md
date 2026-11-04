@@ -111,8 +111,7 @@ development laptop. No configuration or behaviour changes for users.
 
 ### Documentation
 
-- Agent session instructions moved from `.github/copilot-instructions.md`
-  to `CLAUDE.md`.
+- Agent session instructions moved to `CLAUDE.md`.
 - Open code-review findings are tracked in `REVIEW_FINDINGS.md`;
   `NEXT_STEPS.md` records the development host.
 
