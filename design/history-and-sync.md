@@ -576,7 +576,11 @@ that host too.
    Last-modification times come from the writer's clock; a phone clock far
    off can misclassify, so entries whose times are in the future or older
    than the recorded version's own creation are reported in review rather
-   than decided silently. Foreign descent and stale-cache comparisons treat
+   than decided silently. KDBX times have one-second resolution, so a
+   writer's edit made within the same second as the entry's recorded
+   last modification counts as not later and is dropped; real edits are
+   never that close, but tests must keep such times clearly apart.
+   Foreign descent and stale-cache comparisons treat
    absent standard fields and their equivalent empty/default values as
    equal: KeePassXC writes these defaults for untouched entries and groups
    without updating their modification times. This normalization is limited
