@@ -75,7 +75,7 @@ fetch must return the actual bytes observed and a store must surface failures.
 Implement probes conservatively: unknown checksums must not masquerade as
 known bytes. A fingerprint's opaque ``token`` is not a content digest.
 Set ``token_is_content`` only when the token changes whenever the content
-changes (it covers a SHA-256, SHA-1 or MD5 digest); only then may an
+changes (it covers a content digest of at least 64 bits); only then may an
 unchanged token stand for a recorded version without a download.
 ``matches()`` may return ``None`` when it lacks a digest or a local path
 for supported server-checksum verification; that is not proof of equality.

@@ -41,7 +41,52 @@ class EndpointChanged(EndpointError):
         self.observed_sha256 = observed_sha256
 
 
-_CONTENT_HASHES = {"sha256": "sha256", "sha1": "sha1", "md5": "md5"}
+class DropboxHash:
+    """Dropbox ``content_hash``: SHA-256 over per-4 MiB-block SHA-256s.
+
+    See https://www.dropbox.com/developers/reference/content-hash.
+    """
+
+    BLOCK = 4 * 1024 * 1024
+
+    def __init__(self, data: bytes = b"") -> None:
+        self._blocks = hashlib.sha256()
+        self._block = hashlib.sha256()
+        self._filled = 0
+        self.update(data)
+
+    def update(self, data: bytes) -> None:
+        """Add bytes to the hash."""
+        view = memoryview(data)
+        while view:
+            take = min(len(view), self.BLOCK - self._filled)
+            self._block.update(view[:take])
+            self._filled += take
+            view = view[take:]
+            if self._filled == self.BLOCK:
+                self._blocks.update(self._block.digest())
+                self._block = hashlib.sha256()
+                self._filled = 0
+
+    def hexdigest(self) -> str:
+        """Return the hash of the bytes added so far."""
+        blocks = self._blocks.copy()
+        if self._filled:
+            blocks.update(self._block.digest())
+        return blocks.hexdigest()
+
+
+# Server hashes kp-sync can compute from local bytes.
+COMPUTABLE_HASHES = frozenset({"sha256", "sha1", "md5", "dropbox"})
+
+
+def new_hash(algorithm: str, data: bytes = b""):
+    """Return a hash object for one of ``COMPUTABLE_HASHES``."""
+    if algorithm == "dropbox":
+        return DropboxHash(data)
+    if algorithm not in COMPUTABLE_HASHES:
+        raise ValueError(f"unsupported content hash: {algorithm}")
+    return hashlib.new(algorithm, data)
 
 
 @dataclass(frozen=True)
@@ -54,9 +99,9 @@ class EndpointFingerprint:
         token: Opaque metadata token for detecting changes.
         hashes: Server-provided hashes as sorted algorithm/value pairs.
         token_is_content: Whether ``token`` changes whenever the
-            content changes (it includes a SHA-256, SHA-1 or MD5 content
-            hash). Only such a token may identify a known version
-            without downloading the copy.
+            content changes (it includes a content hash of at least 64
+            bits, computable or not). Only such a token may identify a
+            known version, or an unchanged copy, without a download.
     """
 
     sha256: str | None
@@ -68,11 +113,11 @@ class EndpointFingerprint:
     token_is_content: bool = False
 
     def content_hashes(self) -> dict[str, str]:
-        """Return supported hashes, including the SHA-256 field."""
+        """Return locally computable hashes, including SHA-256."""
         result = {
             algorithm: value
             for algorithm, value in self.hashes
-            if algorithm in _CONTENT_HASHES and value
+            if algorithm in COMPUTABLE_HASHES and value
         }
         if self.sha256:
             result["sha256"] = self.sha256
@@ -98,7 +143,7 @@ class EndpointFingerprint:
         hashes = self.content_hashes()
         if not hashes or path is None:
             return None
-        digests = {algorithm: hashlib.new(algorithm) for algorithm in hashes}
+        digests = {algorithm: new_hash(algorithm) for algorithm in hashes}
         size = 0
         with open(path, "rb") as source:
             while chunk := source.read(1024 * 1024):

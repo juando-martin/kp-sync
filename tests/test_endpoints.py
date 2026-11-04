@@ -14,6 +14,7 @@ from kp_sync.endpoints import (
     EndpointUnavailable,
     FileEndpoint,
 )
+from kp_sync.endpoints.base import DropboxHash, EndpointFingerprint, new_hash
 from kp_sync.endpoints.file import _RenameUnsupported
 
 
@@ -81,6 +82,58 @@ class EndpointTest(unittest.TestCase):
                 CommandEndpoint(
                     "cmd", fetch, store, probe_is_content_hash=True
                 )
+
+    def test_dropbox_hash_matches_rclone_reference_values(self) -> None:
+        # Values from `rclone hashsum dropbox` (rclone 1.75.2).
+        cases = (
+            (
+                b"",
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4"
+                "649b934ca495991b7852b855",
+            ),
+            (
+                b"kp-sync dropbox hash",
+                "f28c4bb297da3174ecebf9acdcad9827393873e5"
+                "fe76268b4a9ff34f65853267",
+            ),
+            (
+                bytes(range(256)) * 16384,
+                "894bbb52d1212d6bcbe9967f1a2169138c4d4af0"
+                "c8dfbaeae86cd1d3f0c03faf",
+            ),
+            (
+                bytes(range(251)) * 20000,
+                "6d4550ca843da87f4cb1605ac77a5f0d85fb4dd4"
+                "77b4bcd5064378c7f99676c2",
+            ),
+        )
+        for data, expected in cases:
+            with self.subTest(size=len(data)):
+                self.assertEqual(
+                    new_hash("dropbox", data).hexdigest(), expected
+                )
+                streamed = DropboxHash()
+                for offset in range(0, len(data), 1_000_003):
+                    streamed.update(data[offset : offset + 1_000_003])
+                self.assertEqual(streamed.hexdigest(), expected)
+        with self.assertRaises(ValueError):
+            new_hash("quickxor")
+
+    def test_dropbox_listing_is_compared_with_local_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "copy"
+            path.write_bytes(b"kp-sync dropbox hash")
+            digest = new_hash("dropbox", path.read_bytes()).hexdigest()
+            same = EndpointFingerprint(None, 20, "t", (("dropbox", digest),))
+            other = EndpointFingerprint(
+                None, 20, "t", (("dropbox", "0" * 64),)
+            )
+            opaque = EndpointFingerprint(
+                None, 20, "t", (("quickxor", "1" * 40),)
+            )
+            self.assertIs(same.matches(None, path), True)
+            self.assertIs(other.matches(None, path), False)
+            self.assertIsNone(opaque.matches(None, path))
 
     def test_command_failures_are_reported(self) -> None:
         endpoint = CommandEndpoint(

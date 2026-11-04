@@ -19,7 +19,7 @@ from kp_sync.config import load_config
 from kp_sync.drives import DriveEndpoint
 from kp_sync.endpoints.command import CommandEndpoint
 from kp_sync.endpoints.rclone import RcloneEndpoint
-from kp_sync.endpoints.base import EndpointUnavailable
+from kp_sync.endpoints.base import EndpointUnavailable, new_hash
 from kp_sync.engine import SyncEngine
 from kp_sync.kdbx import inspect_kdbx
 from kp_sync.state import HistoryState, StateError
@@ -35,12 +35,21 @@ class FakeRclone:
         self.hashes = True
         # Google Drive lists only MD5 before rclone 1.61.
         self.md5_only = False
+        # "dropbox": Dropbox's computable hash only; "opaque": a hash
+        # kp-sync cannot compute (like OneDrive's quickxor).
+        self.only_hash = None
         self.calls = []
 
     def path(self, value):
         if value.startswith("fake:"):
             return self.root / value.partition(":")[2].lstrip("/")
         return Path(value)
+
+    def listed_hash(self, item):
+        data = item.read_bytes()
+        if self.only_hash == "dropbox":
+            return {"dropbox": new_hash("dropbox", data).hexdigest()}
+        return {"quickxor": hashlib.sha1(data[::-1]).hexdigest()}
 
     def __call__(self, argv, **kwargs):
         self.calls.append(tuple(argv))
@@ -101,18 +110,26 @@ class FakeRclone:
                                 {}
                                 if not self.hashes
                                 else (
-                                    {"SHA-256": inspect_kdbx(item).sha256}
-                                    if item.is_file()
-                                    and item.suffix == ".kdbx"
-                                    and not self.md5_only
-                                    else (
-                                        {
-                                            "MD5": hashlib.md5(
-                                                item.read_bytes()
-                                            ).hexdigest()
-                                        }
-                                        if item.is_file()
+                                    (
+                                        self.listed_hash(item)
+                                        if self.only_hash and item.is_file()
                                         else {}
+                                    )
+                                    if not self.hashes or self.only_hash
+                                    else (
+                                        {"SHA-256": inspect_kdbx(item).sha256}
+                                        if item.is_file()
+                                        and item.suffix == ".kdbx"
+                                        and not self.md5_only
+                                        else (
+                                            {
+                                                "MD5": hashlib.md5(
+                                                    item.read_bytes()
+                                                ).hexdigest()
+                                            }
+                                            if item.is_file()
+                                            else {}
+                                        )
                                     )
                                 )
                             ),
@@ -411,6 +428,94 @@ class CloudSyncTest(unittest.TestCase):
     def test_stored_hashless_token_from_older_versions_is_not_trusted(self):
         self._legacy_token = True
         self.test_hashless_rewrite_keeping_size_and_mtime_is_downloaded()
+
+    def cloud_downloads(self):
+        return [
+            call
+            for call in self.runner.calls
+            if call[1] == "copyto" and call[-2] == "fake:pass.kdbx"
+        ]
+
+    def test_dropbox_hash_alone_identifies_copies_and_cached_state(self):
+        self.runner.only_hash = "dropbox"
+        self.engine("left").sync()
+        engine = self.engine("left")
+        self.runner.calls.clear()
+        self.assertEqual(engine.sync().action, "unchanged")
+        # One listing: no database or state.json download.
+        self.assertEqual(
+            [call[1] for call in self.runner.calls],
+            ["lsjson"],
+            self.runner.calls,
+        )
+
+    def test_opaque_hash_skips_unchanged_downloads_and_rechecks(self):
+        self.runner.only_hash = "opaque"
+        self.engine("left").sync()
+        engine = self.engine("left")
+        self.runner.calls.clear()
+        self.assertEqual(engine.sync().action, "unchanged")
+        self.assertEqual(self.cloud_downloads(), [], self.runner.calls)
+        self.edit(engine.config.hub, username="hub-edit")
+        engine = self.engine("left")
+        self.runner.calls.clear()
+        self.assertEqual(engine.sync().action, "committed")
+        # Pre-write rechecks compare tokens; only the post-write check,
+        # which must prove the uploaded bytes, downloads.
+        self.assertEqual(len(self.cloud_downloads()), 1, self.runner.calls)
+        self.assertEqual(
+            self.cloud_db.read_bytes(), engine.config.hub.read_bytes()
+        )
+
+    def test_opaque_hash_change_is_detected(self):
+        self.runner.only_hash = "opaque"
+        self.engine("left").sync()
+        self.edit(self.cloud_db, username="phone")
+        engine = self.engine("left")
+        self.assertEqual(engine.sync().action, "committed")
+        database = PyKeePass(
+            engine.config.hub, password="test-password", keyfile=self.key
+        )
+        self.assertEqual(database.entries[0].username, "phone")
+
+    def test_opaque_hash_change_before_a_write_restarts_the_run(self):
+        self.runner.only_hash = "opaque"
+        self.engine("left").sync()
+        self.edit(self.engine("left").config.hub, url="https://hub.test")
+        engine = self.engine("left")
+        runner = self.runner
+        changed = []
+        uploads_before_change = []
+
+        def racing(argv, **kwargs):
+            if argv[1] == "copyto" and argv[-1] == "fake:pass.kdbx":
+                uploads_before_change.append(not changed)
+            result = runner(argv, **kwargs)
+            if (
+                not changed
+                and argv[1] == "copyto"
+                and argv[2] == "fake:kp-sync/state.json"
+            ):
+                # After observation, before the pre-write checks.
+                changed.append(True)
+                self.edit(self.cloud_db, username="phone")
+            return result
+
+        for endpoint in engine.endpoints:
+            if isinstance(endpoint, RcloneEndpoint):
+                endpoint._runner = racing
+        # Fresh listings for pre-write checks: only the token comparison
+        # can then notice the change before the upload.
+        with patch("kp_sync.engine.RECHECK_WINDOW", 0):
+            result = engine.sync()
+        self.assertTrue(changed)
+        self.assertNotIn(True, uploads_before_change)
+        self.assertGreaterEqual(result.restarted, 1)
+        database = PyKeePass(
+            self.cloud_db, password="test-password", keyfile=self.key
+        )
+        self.assertEqual(database.entries[0].username, "phone")
+        self.assertEqual(database.entries[0].url, "https://hub.test")
 
     def test_hashless_rewrite_keeping_size_and_mtime_is_downloaded(self):
         # Size and mtime survive a same-size rewrite on some backends.
