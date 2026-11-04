@@ -1,0 +1,31 @@
+# udevmon actions for a second machine with a named profile and a
+# persistent hub (../second-laptop.toml). Merge into
+# ~/.config/udevmon/config.toml next to the existing actions.
+#
+# secondary mode: plugging only attaches the drive as one more copy
+# (`kp-sync attach`) and unplugging detaches it. KeePassXC is neither
+# started nor stopped and the hub, on an encrypted disk, stays. Never use
+# --mode main here: that would remove a RAM hub on the last unplug.
+
+[daemon]
+script_dir = ["~/.local/udev/scripts", "~/.venvs/tools/bin"]
+
+[devices.key-daily]
+match = { fs_uuid = "AB12-CD34", drive_serial = "1111222233334444" }
+tags = ["keepass"]
+
+[[actions]]
+name = "keepass-attach"
+tag = "keepass"
+on = ["startup", "mounted"]
+run = ["kp-sync", "--profile", "second-laptop", "drive-sync", "up", "--mode", "secondary", "--drive-id", "{drive_serial}:{fs_uuid}", "{mountpoint}"]
+lock = "keydisk"
+timeout = 120
+
+[[actions]]
+name = "keepass-detach"
+tag = "keepass"
+on = ["unmounted"]
+run = ["kp-sync", "--profile", "second-laptop", "drive-sync", "down", "--mode", "secondary", "--drive-id", "{drive_serial}:{fs_uuid}"]
+lock = "keydisk"
+timeout = 120

@@ -16,6 +16,9 @@ python -m pip install .
 
 Create `~/.config/kp-sync/config.toml`, or use `--profile NAME` to load
 `~/.config/kp-sync/NAME.toml`. See `man 5 kp-sync-config` for all options.
+Ready-made profiles (cloud, Dropbox, pendrives, folders, the rcd
+transport, every option) and udevmon actions are in
+[examples/](examples/README.md).
 Install and check the user-level daemon integration with:
 
 ```sh

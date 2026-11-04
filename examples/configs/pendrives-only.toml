@@ -1,0 +1,42 @@
+# No cloud: several key pendrives carry the database and the history.
+#
+# Each pendrive is attached at runtime by a udevmon action (see
+# ../udevmon/main-laptop.toml): `kp-sync drive-sync up --mode main`
+# registers the drive, pre-syncs and starts KeePassXC; unplugging it runs
+# the post-sync and, after the last drive, removes the RAM hub. Drives are
+# told apart by SERIAL:FS_UUID, never by mount path, so cloned sticks with
+# the same filesystem UUID are still distinct.
+
+hub = "/run/user/1000/kp/pass.kdbx"
+key_file = "~/data/Personal/kp/pass.keyx"
+
+[[endpoints]]
+# One template for every attached drive; at most one runtime file
+# endpoint may be enabled.
+name = "pendrive"
+type = "file"
+source = "runtime"
+
+[drives]
+# The database is <mountpoint>/kp/pass.kdbx; history stays at
+# <mountpoint>/kp-sync/ (baseline.dir below), rescue files at the root.
+directory = "kp"
+# Notify when an attached drive held an outdated copy and was updated.
+notify_stale = true
+
+# Display names only: identity, history and matching are unchanged.
+# Find a drive's identity with `udevmon present --all-props` or
+# `lsblk -o SERIAL,UUID`.
+[drives.aliases]
+"1111222233334444:AB12-CD34" = "Daily key"
+"5555666677778888:AB12-CD34" = "Spare key (drawer)"
+
+[baseline]
+# Every writable attached pendrive keeps the reconciled history, so a
+# cold start with any single drive can recognise its copy.
+stores = ["pendrive"]
+keep_days = 365
+
+[launch]
+# Quit KeePassXC (after a final sync) when the last drive is removed.
+quit_on_last_drive = true

@@ -1,0 +1,16 @@
+# Dropbox as the cloud. Dropbox lists only its own content hash, which
+# kp-sync computes locally (like MD5/SHA-256 on Google Drive), so an
+# unchanged sync is a single listing. OneDrive's quickxor hash also
+# avoids downloads on unchanged syncs, but kp-sync cannot compute it, so a
+# written copy is downloaded once to confirm the upload.
+
+key_file = "~/data/Personal/pass.keyx"
+
+[[endpoints]]
+name = "cloud"
+type = "rclone"
+# Use the remote name exactly as `rclone listremotes` prints it.
+remote = "DropBox:Apps/kp"
+
+[baseline]
+stores = ["cloud"]

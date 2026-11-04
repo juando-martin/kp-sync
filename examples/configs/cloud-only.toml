@@ -1,0 +1,30 @@
+# Smallest useful profile: one machine, the hub in RAM, Google Drive.
+#
+# Install as ~/.config/kp-sync/config.toml (default profile) or as
+# ~/.config/kp-sync/NAME.toml and pass --profile NAME. Configure the
+# rclone remote first (`rclone config`); no credentials go in here.
+#
+# What it does: KeePassXC opens the hub, which lives in $XDG_RUNTIME_DIR
+# (tmpfs, gone at logout). Every save is uploaded to the cloud, cloud edits
+# (phones) are pulled while KeePassXC runs, and the version history used
+# for merging lives in the cloud next to the database
+# (GoogleDrive:kp/kp-sync/).
+
+# The hub defaults to $XDG_RUNTIME_DIR/pass.kdbx. Paths do not expand
+# environment variables, so a nested hub needs your UID (`id -u`):
+# hub = "/run/user/1000/kp/pass.kdbx"
+key_file = "~/data/Personal/pass.keyx"
+
+[[endpoints]]
+name = "cloud"
+type = "rclone"
+# Remote name plus an optional folder. The database is
+# GoogleDrive:kp/pass.kdbx (db_name defaults to pass.kdbx).
+remote = "GoogleDrive:kp"
+# rclone_transport = "cli" is the default: one rclone process per call.
+# See cloud-rcd.toml for the faster persistent transport.
+
+[baseline]
+# Only the cloud holds history here. The default list also names
+# "pendrive", which would print a warning without such an endpoint.
+stores = ["cloud"]

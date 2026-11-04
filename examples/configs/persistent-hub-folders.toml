@@ -1,0 +1,56 @@
+# A laptop with the hub on an encrypted disk, plus plain folders.
+#
+# hub_persistent: KeePassXC opens ~/data/pass.kdbx directly; kp-sync
+# never deletes it and refuses to run unless it is on dm-crypt/LUKS
+# (require_encrypted defaults to true here). File endpoints are other
+# copies on local or mounted filesystems; each is written atomically
+# (rename), with a timestamped backup first.
+
+hub = "~/data/pass.kdbx"
+hub_persistent = true
+key_file = "~/data/pass.keyx"
+
+[[endpoints]]
+name = "cloud"
+type = "rclone"
+remote = "GoogleDrive:kp"
+
+[[endpoints]]
+# A folder another program also writes (Syncthing, Nextcloud client, a
+# second user): foreign_writers gives its changes the descent check
+# against the history before they are promoted.
+name = "syncthing"
+type = "file"
+path = "~/Sync/kp/pass.kdbx"
+identity = "file:syncthing-laptop2"
+foreign_writers = true
+
+[[endpoints]]
+# A NAS share that is only sometimes mounted: an absent copy is skipped
+# silently and retried on the next run (nothing is queued).
+name = "nas"
+type = "file"
+path = "/mnt/nas/backup/kp/pass.kdbx"
+identity = "file:nas-backup"
+optional = true
+on_unavailable = "skip"
+timeout = 20
+
+[[endpoints]]
+# A copy that must never be written, e.g. a colleague's export. It is
+# never a source: if it changes, the sync stays pending (`kp-sync
+# resolve`) instead of promoting it.
+name = "reference"
+type = "file"
+path = "/srv/shared/kp-reference.kdbx"
+readonly = true
+optional = true
+
+[daemon]
+# With a persistent hub nothing removes it at logout; idle syncs keep the
+# other copies current while KeePassXC stays open.
+idle_sync = true
+idle_sync_interval = 3600
+
+[baseline]
+stores = ["cloud"]
