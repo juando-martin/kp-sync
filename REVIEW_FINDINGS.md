@@ -20,19 +20,19 @@ Round 1 (F1–F3) shipped as `v0.2.1`. Remaining rounds, each on its own
 branch with tests, committed locally and pushed only when work moves to
 `alpha`:
 
-F4, F6, F7, F8, F9 and F10 are fixed on `main` (unreleased, not pushed).
+F4–F11 are fixed on `main` and released as `v0.3.0` (not pushed).
 Upgrading Black in `alpha`'s tools environment (F7) is a package install
 and needs its own approval there. Acceptance beyond unit tests needs the
 `kp-test` profile; installing kp-sync or units on `beta` needs owner
 approval, otherwise use `--no-daemon` runs from the checkout.
 
 F5 and F11 were done in the unattended run of 2026-11-04, each on its own
-unmerged branch, stacked in this order: `f5-probe-content-hash`,
+branch (merged into `main` for `v0.3.0`), stacked in this order: `f5-probe-content-hash`,
 `f11-batch-bases` (part 1, batched base transfers) and
 `f11-rcd-transport` (part 2, the optional `rcd` transport, default off).
 The decisions are in `design/history-and-sync.md` ("Sync algorithm"
 step 2 and "Save") and `design/endpoints-and-access.md` ("Optional rcd
-transport"); the owner reviews and says "merge". No findings remain open.
+transport"); No findings remain open.
 
 ## Scope
 
