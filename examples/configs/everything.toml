@@ -1,0 +1,154 @@
+# Every feature in one profile, as a reference. Start from a smaller
+# example and copy the parts you need; values shown are defaults unless
+# a comment says otherwise. Replace 1000 with your UID (`id -u`).
+
+hub = "/run/user/1000/kp/pass.kdbx"   # RAM hub, removed at logout
+hub_persistent = false
+host = "alpha"                          # name in hub:HOST; default hostname
+db_name = "pass.kdbx"
+key_file = "~/data/Personal/kp/pass.keyx"
+
+# --- Database copies -------------------------------------------------
+
+[[endpoints]]
+# Primary cloud: database plus shared history (first baseline store).
+name = "cloud"
+type = "rclone"
+remote = "GoogleDrive:kp"
+rclone_config = "/run/user/1000/rclone/rclone.conf"
+rclone_transport = "auto"   # persistent rcd; "cli" (default) = commands
+timeout = 60
+
+[[endpoints]]
+# A second cloud as a plain database mirror. Only the first available
+# cloud in [baseline].stores holds history; this one is not listed.
+name = "dropbox"
+type = "rclone"
+remote = "DropBox:Apps/kp"
+optional = true
+
+[[endpoints]]
+# Key pendrives, attached at runtime by udevmon (../udevmon/).
+name = "pendrive"
+type = "file"
+source = "runtime"
+
+[[endpoints]]
+# Any transport through argument-vector commands; {file} is the local
+# side. rsync replaces the remote file atomically (temp file + rename).
+name = "nas"
+type = "command"
+fetch = ["rsync", "-q", "nas:kp/pass.kdbx", "{file}"]
+store = ["rsync", "-q", "{file}", "nas:kp/pass.kdbx"]
+# Optional cheap check. Without probe_is_content_hash the copy is
+# downloaded every run; set it only when the output changes whenever the
+# content does (a real content hash), since an unchanged output is taken
+# as "same version" without downloading.
+probe = ["ssh", "nas", "sha256sum", "kp/pass.kdbx"]
+probe_is_content_hash = true
+optional = true
+on_unavailable = "warn"     # skip | warn | fail
+timeout = 30
+
+# --- History ---------------------------------------------------------
+
+[baseline]
+stores = ["cloud", "pendrive"]   # priority order
+dir = "kp-sync"                  # <remote>/kp-sync, <drive>/kp-sync
+keep_days = 180
+
+[drives]
+directory = "kp"
+notify_stale = true
+
+[drives.aliases]
+"1111222233334444:AB12-CD34" = "Daily key"
+
+[backups]
+keep = 20          # timestamped runtime backups per copy
+
+# --- Remote access ---------------------------------------------------
+
+[sessions]
+# sshfs sessions: kp-sync stages the hub for a remote host and serves it
+# through a confined sftp-server with a per-session key.
+enabled = true
+mount_dir = "~/kp"          # on the remote host
+tunnel_port = 2222          # remote end of the reverse tunnel
+default_mode = "ro"         # ro | rw
+session_key_ttl = 86400
+
+[ssh_sessions.office]
+# kp-sync service start|stop|status ssh-session office
+target = "me@office-pc:~/kp"
+mode = "rw"
+
+[access]
+# Windows access through kp-access; the client sees this virtual path.
+db_path = "/vault/pass.kdbx"
+
+[access_owners.windows]
+# kp-sync service start|stop|status access-owner windows
+# Run without a shell; use absolute paths if the systemd user manager's
+# PATH lacks them. --db-path is the profile's staging copy.
+command = [
+  "/home/me/.venvs/tools/bin/kp-access-owner",
+  "--server-host", "me@windows-box",
+  "--db-path", "/run/user/1000/kp-sync/staging/pass.kdbx",
+  "--path-name", "/vault/pass.kdbx",
+  "--file-op-cmd", "kp-sync access-op",
+]
+
+# --- Credentials and interaction ------------------------------------
+
+[credentials]
+cache_timeout = 900          # seconds the password stays in the keyring
+
+[credentials.keepassxc]
+# Ask an unlocked KeePassXC (browser protocol) for the database password
+# stored under this URL; a lookup key, never fetched.
+url = "https://kp-sync.invalid/pass.kdbx"
+
+[ui]
+mode = "auto"                # auto | tty | gui | none
+gui = "zenity"               # zenity | kdialog | custom command
+ask_first = true
+dialog_timeout = 600
+notify = true
+progress = true
+
+[verify]
+max_entry_drop = 0.10        # confirm a candidate losing more than 10 %
+min_entry_drop = 5           # ... and more than 5 entries
+foreign_check = "always"     # always | merge-only
+
+[merge]
+engine = "kp-sync"           # kp-sync (3-way) | keepassxc
+review = "interactive"       # interactive | auto-hub | auto-other | defer
+
+# --- Daemon and applications ----------------------------------------
+
+[daemon]
+debounce = 2.0
+poll_interval = 900          # 0 disables polling
+idle_exit = 120
+prestart_timeout = 20
+access_lease_ttl = 3600
+hub_path_unit = true
+rescue_wait = 60
+
+[sync]
+lock_timeout = 60            # --no-daemon runs
+max_restarts = 3
+
+[launch]
+default_app = "keepassxc"
+confirm_without_cloud = false
+quit_on_last_drive = true
+
+[apps.keepassxc-flatpak]
+# kp-sync run --app keepassxc-flatpak
+command = ["flatpak", "run", "org.keepassxc.KeePassXC"]
+process = ["keepassxc"]
+reloads = true               # reloads the file itself when it changes
+single_instance = true

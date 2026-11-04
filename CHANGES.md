@@ -3,6 +3,16 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Documentation
+
+- Example profiles under `examples/configs/` (cloud only, rcd transport,
+  Dropbox, pendrives only, persistent hub with folders, every option) and
+  udevmon actions for main and secondary drive modes under
+  `examples/udevmon/`, with an index in `examples/README.md`. A test keeps
+  them loadable and their commands valid.
+
 ## 0.3.1 (2026-11-04)
 
 ### Changed

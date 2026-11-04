@@ -1,0 +1,33 @@
+# Cloud with the persistent rclone transport and credentials that a
+# key pendrive publishes (the udevmon `rclone-config` helper).
+#
+# rclone_transport = "auto": the daemon keeps one `rclone rcd` per endpoint
+# on a private Unix socket (<run dir>/rclone-rcd/cloud.sock, 0700), so
+# calls skip re-authentication (on Google Drive about 1 s instead of 2-4 s
+# per call). It needs rclone 1.61 or later; older rclone is detected when
+# the daemon starts it and plain commands are used instead. Commands run
+# outside the daemon (--no-daemon, history, doctor) use the daemon's rcd
+# while it answers and plain rclone otherwise; they never start one.
+# Custom download/upload/probe commands always run as commands.
+
+key_file = "~/data/Personal/pass.keyx"
+
+[[endpoints]]
+name = "cloud"
+type = "rclone"
+remote = "GoogleDrive:kp"
+rclone_transport = "auto"
+# The provider-owned file. kp-sync only reads it and runs rclone (and the
+# rcd) with its own private copy, which it removes once this file goes
+# away (key drive removed). Without this key, rclone's own default config
+# (~/.config/rclone/rclone.conf) is used.
+rclone_config = "/run/user/1000/rclone/rclone.conf"
+# Per-operation limit, also for rcd jobs; a timed-out job is stopped.
+timeout = 60
+
+[daemon]
+# How often the cloud is checked for phone edits while a lease is held.
+poll_interval = 900
+
+[baseline]
+stores = ["cloud"]

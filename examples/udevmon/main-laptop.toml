@@ -1,0 +1,69 @@
+# udevmon actions for the main laptop (default kp-sync profile).
+# Merge into ~/.config/udevmon/config.toml; never replace unrelated
+# devices or actions. Check with `udevmon check` and
+# `udevmon explain mounted` before restarting udevmon.
+#
+# main mode: plugging a key drive runs `kp-sync up` (attach, pre-sync,
+# start KeePassXC); unplugging runs `kp-sync down` (quit KeePassXC,
+# post-sync, remove the RAM hub after the last drive). Both are submitted
+# to the daemon with --no-wait, so udevmon is never blocked by a sync.
+#
+# Order matters: rclone-config up runs before kp-sync up (credentials
+# ready for the pre-sync); kp-sync down runs before rclone-config down
+# (the draining post-sync still finds them). Actions run in file order.
+
+[daemon]
+# Where bare command names (kp-sync, rclone-config) are found.
+script_dir = ["~/.local/udev/scripts", "~/.venvs/tools/bin"]
+
+# One block per physical key drive. Get the values from
+# `udevmon present --all-props` (drive_serial, fs_uuid) or
+# `lsblk -o SERIAL,UUID` (the serial is on the disk, the UUID on the
+# partition).
+[devices.key-daily]
+description = "Daily KeePass key drive"
+match = { fs_uuid = "AB12-CD34", drive_serial = "1111222233334444" }
+# keepass: carries the database; rclone: carries config/rclone/rclone.conf
+tags = ["keepass", "rclone"]
+
+[devices.key-spare]
+description = "Spare key drive (no cloud credentials)"
+match = { fs_uuid = "AB12-CD34", drive_serial = "5555666677778888" }
+tags = ["keepass"]
+
+[[actions]]
+name = "rclone-config-up"
+tag = "rclone"
+on = ["startup", "mounted"]
+run = ["rclone-config", "up", "{mountpoint}", "{drive_serial}:{fs_uuid}"]
+lock = "rclone-config"
+timeout = 30
+
+[[actions]]
+name = "keepass-up"
+tag = "keepass"
+on = ["startup", "mounted"]
+# kp-sync checks that {drive_serial}:{fs_uuid} really is the filesystem
+# mounted at {mountpoint} before registering it.
+run = ["kp-sync", "drive-sync", "up", "--mode", "main", "--drive-id", "{drive_serial}:{fs_uuid}", "{mountpoint}"]
+# The same lock for up and down keeps a quick re-plug ordered.
+lock = "keydisk"
+timeout = 120
+
+[[actions]]
+name = "keepass-down"
+tag = "keepass"
+# unmounted also fires when the stick is pulled without ejecting; the
+# drive is already gone, so kp-sync never writes to it here.
+on = ["unmounted"]
+run = ["kp-sync", "drive-sync", "down", "--mode", "main", "--drive-id", "{drive_serial}:{fs_uuid}"]
+lock = "keydisk"
+timeout = 120
+
+[[actions]]
+name = "rclone-config-down"
+tag = "rclone"
+on = ["unmounted", "shutdown"]
+run = ["rclone-config", "down", "{mountpoint}", "{drive_serial}:{fs_uuid}"]
+lock = "rclone-config"
+timeout = 30
