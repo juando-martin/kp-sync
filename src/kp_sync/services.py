@@ -295,10 +295,15 @@ def manage_daemon_service(
     if desktop and action not in {"install", "uninstall"}:
         raise ServiceError("--desktop is only valid for install/uninstall")
     if action == "install":
-        from kp_sync.integration import install_units
+        from kp_sync.integration import installed_executable, install_units
 
         installed = install_units(
-            config, paths=paths, enable=False, desktop=desktop, runner=runner
+            config,
+            paths=paths,
+            executable=installed_executable(),
+            enable=False,
+            desktop=desktop,
+            runner=runner,
         )
         result = _daemon_systemctl(["daemon-reload"], runner=runner)
         if result.returncode:
