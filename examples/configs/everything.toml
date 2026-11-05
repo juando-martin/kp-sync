@@ -16,7 +16,7 @@ name = "cloud"
 type = "rclone"
 remote = "GoogleDrive:kp"
 rclone_config = "/run/user/1000/rclone/rclone.conf"
-rclone_transport = "auto"   # persistent rcd; "cli" (default) = commands
+rclone_transport = "auto"   # default: persistent rcd; "cli" = commands
 timeout = 60
 
 [[endpoints]]

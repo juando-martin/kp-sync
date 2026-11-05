@@ -212,12 +212,12 @@ class ConfigTest(unittest.TestCase):
                         config.endpoints[0].probe_is_content_hash, expected
                     )
 
-    def test_rclone_transport_defaults_to_commands(self) -> None:
+    def test_rclone_transport_defaults_to_auto(self) -> None:
         rclone = (
             '[[endpoints]]\nname = "cloud"\ntype = "rclone"\nremote = "gd"\n'
         )
         cases = (
-            (rclone, "cli", None),
+            (rclone, "auto", None),
             (rclone + 'rclone_transport = "auto"\n', "auto", None),
             (rclone + 'rclone_transport = "cli"\n', "cli", None),
             (rclone + 'rclone_transport = "rcd"\n', None, "cli or auto"),
@@ -424,7 +424,7 @@ class ConfigTest(unittest.TestCase):
                 calls.append(argv)
                 if argv[0] == "findmnt":
                     return subprocess.CompletedProcess(
-                        argv, 0, "/dev/mapper/secure\n", ""
+                        argv, 0, "ext4 /dev/mapper/secure\n", ""
                     )
                 return subprocess.CompletedProcess(
                     argv,
@@ -441,7 +441,7 @@ class ConfigTest(unittest.TestCase):
             def unencrypted_runner(argv, **kwargs):
                 if argv[0] == "findmnt":
                     return subprocess.CompletedProcess(
-                        argv, 0, "/dev/sda1\n", ""
+                        argv, 0, "ext4 /dev/sda1\n", ""
                     )
                 return subprocess.CompletedProcess(
                     argv, 0, '{"blockdevices":[{"type":"part"}]}', ""
@@ -449,6 +449,41 @@ class ConfigTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ConfigError, "not on a dm-crypt"):
                 require_encrypted_hub(hub, runner=unencrypted_runner)
+
+    def test_persistent_hub_accepts_encrypted_zfs_with_key_loaded(self):
+        hub = Path("/home/user/keepass/pass.kdbx")
+
+        def zfs_runner(encryption, keystatus, calls):
+            def runner(argv, **kwargs):
+                calls.append(argv)
+                if argv[0] == "findmnt":
+                    return subprocess.CompletedProcess(
+                        argv, 0, "zfs pool/home/user\n", ""
+                    )
+                return subprocess.CompletedProcess(
+                    argv, 0, f"{encryption}\n{keystatus}\n", ""
+                )
+
+            return runner
+
+        calls = []
+        require_encrypted_hub(
+            hub, runner=zfs_runner("aes-256-gcm", "available", calls)
+        )
+        self.assertEqual([call[0] for call in calls], ["findmnt", "zfs"])
+        self.assertEqual(calls[1][-1], "pool/home/user")
+        for encryption, keystatus in (
+            ("off", "-"),
+            ("aes-256-gcm", "unavailable"),
+            ("-", "-"),
+        ):
+            with (
+                self.subTest(encryption=encryption, keystatus=keystatus),
+                self.assertRaisesRegex(ConfigError, "encrypted ZFS"),
+            ):
+                require_encrypted_hub(
+                    hub, runner=zfs_runner(encryption, keystatus, [])
+                )
 
 
 if __name__ == "__main__":

@@ -31,9 +31,9 @@ Searched at `~/.config/kp-sync/config.toml` (overridable with `--config` or
   `rclone` endpoints do not accept it; their listing qualifies by
   itself when it includes a content hash of at least 64 bits (see
   "Sync algorithm", step 2).
-  `rclone_transport` (`rclone` only): `"cli"` (default) runs rclone
-  commands; `"auto"` uses the daemon's persistent `rclone rcd` when this
-  rclone supports it (1.61+) and commands otherwise (see "Optional rcd
+  `rclone_transport` (`rclone` only): `"auto"` (default) uses the
+  daemon's persistent `rclone rcd` when this rclone supports it (1.61+)
+  and commands otherwise; `"cli"` always runs rclone commands (see "Optional rcd
   transport" in the endpoints chapter).
 - `[sessions]`: `enabled`, `mount_dir` (remote default `~/kp`),
   `tunnel_port` (default 2222; the remote end of the reverse tunnel, so

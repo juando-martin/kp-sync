@@ -71,8 +71,9 @@ Status: design only. Implementation is a later phase.
   permanent storage (e.g. `~/data/pass.kdbx` on an encrypted disk), opened
   directly by KeePassXC and never deleted by `kp-sync`. With
   `require_encrypted = true` (default for persistent hubs) `kp-sync`
-  refuses to run if that file is not on a dm-crypt/LUKS device (checked
-  with `lsblk`).
+  refuses to run if that file is not on encrypted storage: a
+  dm-crypt/LUKS device (checked with `lsblk`) or a ZFS dataset with native
+  encryption and its key loaded (`zfs get encryption,keystatus`).
 - **Endpoint**: any other location holding a copy. The engine knows only the
   generic endpoint interface (`fetch`, `store`, `probe`, `available`,
   `readonly`, `identity`); the number and kind of endpoints is entirely up to

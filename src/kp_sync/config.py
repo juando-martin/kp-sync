@@ -134,7 +134,7 @@ class EndpointConfig:
     upload: tuple[str, ...] | None = None
     probe: tuple[str, ...] | None = None
     probe_is_content_hash: bool = False
-    rclone_transport: str = "cli"
+    rclone_transport: str = "auto"
     fetch: tuple[str, ...] | None = None
     store: tuple[str, ...] | None = None
 
@@ -368,7 +368,7 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
             )
         fetch = None
         store = None
-        if value.get("rclone_transport", "cli") not in {"cli", "auto"}:
+        if value.get("rclone_transport", "auto") not in {"cli", "auto"}:
             raise ConfigError(
                 f"endpoints[{index}].rclone_transport must be cli or auto"
             )
@@ -414,7 +414,7 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
             else None
         ),
         probe_is_content_hash=value.get("probe_is_content_hash", False),
-        rclone_transport=value.get("rclone_transport", "cli"),
+        rclone_transport=value.get("rclone_transport", "auto"),
         fetch=(
             _command(value["fetch"], f"endpoints[{index}].fetch")
             if endpoint_type == "command"
@@ -958,18 +958,22 @@ def require_encrypted_hub(
     *,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> None:
-    """Require ``hub`` to reside on a dm-crypt/LUKS-backed filesystem.
+    """Require ``hub`` to reside on encrypted storage.
 
-    Use ``findmnt`` and ``lsblk`` via ``runner``.
-    Raise ``ConfigError`` if encryption cannot be confirmed.
+    Accept a dm-crypt/LUKS-backed filesystem (``lsblk`` shows a
+    ``crypt`` device below it) or a ZFS dataset with native encryption
+    whose key is loaded. Use ``findmnt``, ``lsblk`` and ``zfs`` via
+    ``runner``. Raise ``ConfigError`` if encryption cannot be
+    confirmed.
     """
     try:
         mounted = logged(runner)(
             [
                 "findmnt",
                 "--noheadings",
+                "--raw",
                 "--output",
-                "SOURCE",
+                "FSTYPE,SOURCE",
                 "--target",
                 str(hub),
             ],
@@ -977,7 +981,11 @@ def require_encrypted_hub(
             text=True,
             check=True,
         ).stdout.strip()
-        source = mounted.split("[", 1)[0]
+        fstype, _, source = mounted.partition(" ")
+        if fstype == "zfs":
+            _require_encrypted_zfs(hub, source, runner)
+            return
+        source = source.split("[", 1)[0]
         result = logged(runner)(
             ["lsblk", "--json", "--inverse", "--output", "TYPE", source],
             capture_output=True,
@@ -997,6 +1005,41 @@ def require_encrypted_hub(
         ) from exc
     raise ConfigError(
         f"persistent hub is not on a dm-crypt/LUKS device: {hub}"
+    )
+
+
+def _require_encrypted_zfs(hub: Path, dataset: str, runner) -> None:
+    # Native ZFS encryption: the dataset (or the encryption root it
+    # inherits from) must be encrypted and its key loaded.
+    values = (
+        logged(runner)(
+            [
+                "zfs",
+                "get",
+                "-H",
+                "-p",
+                "-o",
+                "value",
+                "encryption,keystatus",
+                "--",
+                dataset,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        .stdout.strip()
+        .splitlines()
+    )
+    if (
+        len(values) == 2
+        and values[0] not in ("", "-", "off")
+        and values[1] == "available"
+    ):
+        return
+    raise ConfigError(
+        "persistent hub is not on an encrypted ZFS dataset with its key "
+        f"loaded: {hub}"
     )
 
 
