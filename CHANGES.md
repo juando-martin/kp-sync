@@ -21,6 +21,9 @@ hold the details; design decisions live in the `design/` chapters.
 - `status` shows when this machine's hub was saved since the last sync
   ("its changes are not synchronized yet"), checked locally without
   contacting the cloud, so offline edits are visible.
+- `tools/releases.py` cuts a release (`release`), installs a tag into
+  an environment and refreshes the profile's daemon (`install`), and
+  tests a tag from an export with a Markdown report (`test`).
 - The daemon logs a warning when `up`/`down` (main-mode drive events,
   which start and quit applications) reach a profile with a persistent
   hub; use `drive-sync --mode secondary` there.
