@@ -20,11 +20,11 @@ Round 1 (F1–F3) shipped as `v0.2.1`. Remaining rounds, each on its own
 branch with tests, committed locally and pushed only when work moves to
 `alpha`:
 
-F4–F11 are fixed on `main` and released as `v0.3.0` (not pushed).
-Upgrading Black in `alpha`'s tools environment (F7) is a package install
-and needs its own approval there. Acceptance beyond unit tests needs the
-`kp-test` profile; installing kp-sync or units on `beta` needs owner
-approval, otherwise use `--no-daemon` runs from the checkout.
+F4–F11 are fixed on `main` and released as `v0.3.0`. `alpha` is used only
+to install and test (owner, 2026-11-05), so its Black 25 needs no
+upgrade. Acceptance beyond unit tests uses the `kp-test` profile;
+`beta` runs production under `--profile second-laptop`, which
+development must never use.
 
 F5 and F11 were done in the unattended run of 2026-11-04, each on its own
 branch (merged into `main` for `v0.3.0`), stacked in this order: `f5-probe-content-hash`,

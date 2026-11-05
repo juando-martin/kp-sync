@@ -19,7 +19,7 @@ Phase 7 (old-script retirement) is not authorized or complete.
 |---|---|
 | Core, merge, cloud and shared history | Synthetic regression and isolated cloud/exFAT acceptance passed |
 | Main-laptop daemon and desktop integration | Deployed; save propagation, physical drive cycles, launch and progress/Hide accepted |
-| Second laptop | Installation and acceptance explicitly deferred |
+| Second laptop | `beta` installed 2026-11-05 (0.3.4, profile `second-laptop`, persistent ZFS-encrypted hub); owner accepted menu/login launch, edit propagation to `alpha` and both key drives |
 | SSH sessions | Read-only refusal, read-write propagation/deletion, cleanup and confined self-test passed with test data |
 | kp-access and restore | Test-profile Windows save/END, SSH cleanup and restore preservation passed |
 | Production kp-access | BEGIN/open and save propagation accepted; final owner END cleanup and production restore not observed |
@@ -150,14 +150,14 @@ preparation failure with offline attach, later credentials, slow
 post-sync with rapid reinsert, per-profile copies and crash recovery.
 Migration on alpha is complete: provider installed in `~/.venvs/tools`,
 udevmon actions switched (provider `down` after kp-sync `down`), legacy
-hook retired. The second laptop still needs its own approved migration.
+hook retired. The second laptop (`beta`) needs no provider: it has its
+own rclone configuration, so its udevmon actions are only kp-sync
+attach/detach.
 Account changes are not detected by design; all rclone-tagged drives must
 carry one account.
 
 ## Deferred and supervised work
 
-- Second-laptop setup and acceptance: use the bundle instructions only with
-  explicit approval; confirm local paths and identities before installation.
 - Old-script retirement: compare feature parity, then obtain approval
   before changing/removing `keepassdb_ops.sh` or `kp-ssh-access.sh`.
 - The nonreproducible Windows dialog remains deferred by the owner.
