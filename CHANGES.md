@@ -11,6 +11,13 @@ hold the details; design decisions live in the `design/` chapters.
   named profiles when any exist, instead of silently running on built-in
   defaults that reach nothing. Pass `--profile NAME`.
 
+### Documentation
+
+- The README explains installing Bash completion when
+  `register-python-argcomplete` is not on `PATH`, and
+  `examples/bash-completion/kps` completes an alias such as
+  `kps='kp-sync --profile HOST'`.
+
 ### Fixed
 
 - `tools/releases.py install` builds in pip's isolated environment when
