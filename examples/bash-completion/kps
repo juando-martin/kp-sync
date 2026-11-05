@@ -1,0 +1,14 @@
+# Completion for the kps alias (kp-sync --profile HOST): completes the
+# alias's expansion through kp-sync's argcomplete function.
+source "${BASH_SOURCE[0]%/*}/kp-sync"
+
+_kps_complete() {
+    local prefix
+    prefix=$(alias kps 2>/dev/null) || return
+    prefix=${prefix#alias kps=\'}
+    prefix=${prefix%\'}
+    local COMP_LINE="$prefix${COMP_LINE#kps}"
+    local COMP_POINT=$((COMP_POINT + ${#prefix} - 3))
+    _python_argcomplete kp-sync
+}
+complete -o nospace -o default -o bashdefault -F _kps_complete kps

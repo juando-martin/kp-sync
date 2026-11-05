@@ -211,7 +211,22 @@ lifecycle messages and errors are logged.
 
 ## Shell completion
 
-`argcomplete` is installed as a package dependency. Add the applicable
+`argcomplete` is installed as a package dependency. Its
+`register-python-argcomplete` helper lives next to `kp-sync` in the
+environment's `bin` directory (for example `~/.venvs/tools/bin`), which may
+not be on `PATH`. For Bash, the simplest is a file that bash-completion
+loads on demand:
+
+```sh
+mkdir -p ~/.local/share/bash-completion/completions
+~/.venvs/tools/bin/register-python-argcomplete kp-sync \
+    > ~/.local/share/bash-completion/completions/kp-sync
+```
+
+For an alias such as `alias kps='kp-sync --profile HOST'`, also copy
+[examples/bash-completion/kps](examples/bash-completion/kps) to that
+directory: it completes the alias's expansion. Regenerate the `kp-sync`
+file after upgrading `argcomplete`. Alternatively, add the applicable
 registration command to your shell startup file:
 
 ```sh
