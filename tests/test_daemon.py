@@ -787,6 +787,27 @@ class DaemonTest(unittest.TestCase):
         controller.apps.activate_existing.assert_not_called()
         controller.apps.start.assert_called_once()
 
+    def test_main_mode_events_warn_on_a_persistent_hub(self):
+        from dataclasses import replace
+
+        controller = self.controller()
+        self.config.hub.write_bytes(b"synthetic hub")
+        controller.apps = Mock()
+        controller.apps.refresh.return_value = []
+        for persistent, expected in ((False, 0), (True, 1)):
+            with self.subTest(persistent=persistent):
+                controller.config = replace(
+                    self.config, hub_persistent=persistent
+                )
+                with patch("kp_sync.daemon.server.info") as log:
+                    controller.handle({"command": "up"})
+                warnings = [
+                    call.args[0]
+                    for call in log.call_args_list
+                    if "--mode secondary" in call.args[0]
+                ]
+                self.assertEqual(len(warnings), expected)
+
     def test_queued_triggers_coalesce_and_never_overlap_syncs(self):
         first_started, finish = threading.Event(), threading.Event()
         active = [0]

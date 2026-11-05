@@ -34,20 +34,6 @@ The decisions are in `design/history-and-sync.md` ("Sync algorithm"
 step 2 and "Save") and `design/endpoints-and-access.md` ("Optional rcd
 transport"); No findings remain open.
 
-## Open findings
-
-- **S1 (confirmed): `service uninstall`/`disable --now` can refuse a
-  clean daemon stop.** Found 2026-11-05 renaming the `beta` profile.
-  `_manage_activation` stops the socket, path and timer before the
-  daemon, so once the daemon stops nothing references its unit and
-  systemd unloads it at once; `_check_daemon_shutdown` then reads
-  `ExecMainCode=0` (no exit record) and reports "could not verify
-  shutdown result", leaving every file in place. A stop that is not
-  clean leaves the unit `failed`, and systemd keeps failed units and
-  their record, so no record with `Result=success` and an inactive unit
-  means a clean stop. Accept exactly that case, with a test; rerunning
-  the command already succeeds because the stopped daemon is skipped.
-
 ## Scope
 
 Read closely (at `db06c97`, re-checked at `v0.2.0`): file and drive

@@ -193,6 +193,50 @@ class StatusTest(unittest.TestCase):
                     "review required",
                 )
 
+    def test_status_reports_a_hub_saved_since_the_last_sync(self):
+        import hashlib
+
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            config = load_config(
+                environ={"HOME": name, "XDG_RUNTIME_DIR": name}
+            )
+            run = root / "kp-sync"
+            run.mkdir(mode=0o700)
+            config.hub.parent.mkdir(parents=True, exist_ok=True)
+            config.hub.write_bytes(b"synced hub")
+            synced = hashlib.sha256(b"synced hub").hexdigest()
+            state = HistoryState()
+            state.commit(
+                synced, (), config.host, (f"hub:{config.host}",), size=10
+            )
+            state.save(run / "state.json")
+            engine = SyncEngine(config, run_directory=run, ui=NoneUI())
+            status = engine.status()
+            hub = status.copies[f"hub:{config.host}"]
+            self.assertNotEqual(hub["state"], "saved since the last sync")
+            self.assertNotIn("hub_unsynced", status.summary)
+
+            config.hub.write_bytes(b"edited offline")
+            status = engine.status()
+            self.assertEqual(
+                status.copies[f"hub:{config.host}"]["state"],
+                "saved since the last sync",
+            )
+            self.assertEqual(status.summary["hub_unsynced"], 1)
+            with (
+                patch("kp_sync.cli.load_config", return_value=config),
+                patch("kp_sync.cli.ensure_run_dir", return_value=run),
+                patch(
+                    "kp_sync.cli.endpoints_from_config",
+                    side_effect=AssertionError("live probe"),
+                ),
+            ):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    main(["status"])
+            self.assertIn("not synchronized yet", output.getvalue())
+
     def test_status_rejects_symlink_and_malformed_cached_report(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)

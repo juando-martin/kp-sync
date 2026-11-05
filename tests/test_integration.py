@@ -266,7 +266,17 @@ class IntegrationTest(unittest.TestCase):
             self.home / ".local/share/applications",
             self.home / ".config/autostart",
         )
-        install_units(self.config, home=self.home, paths=paths, enable=False)
+        program = self.home / "bin/kp-sync"
+        program.parent.mkdir()
+        program.write_text("#!/bin/sh\n")
+        program.chmod(0o755)
+        install_units(
+            self.config,
+            home=self.home,
+            paths=paths,
+            enable=False,
+            executable=str(program),
+        )
         key_file = self.home / "data/key.keyx"
         key_file.parent.mkdir()
         key_file.write_bytes(b"fixture")
