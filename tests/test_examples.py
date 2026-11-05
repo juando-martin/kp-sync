@@ -7,9 +7,7 @@ from kp_sync.cli import _build_parser
 from kp_sync.config import load_config
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
-UDEVMON = sorted(EXAMPLES.glob("udevmon/*.toml")) + [
-    EXAMPLES / "second-laptop-bundle" / "udevmon.toml"
-]
+UDEVMON = sorted(EXAMPLES.glob("udevmon/*.toml"))
 
 
 class ExampleTest(unittest.TestCase):

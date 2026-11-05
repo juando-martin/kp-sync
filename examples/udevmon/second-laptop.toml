@@ -18,7 +18,7 @@ tags = ["keepass"]
 name = "keepass-attach"
 tag = "keepass"
 on = ["startup", "mounted"]
-run = ["kp-sync", "--profile", "second-laptop", "drive-sync", "up", "--mode", "secondary", "--drive-id", "{drive_serial}:{fs_uuid}", "{mountpoint}"]
+run = ["kp-sync", "--profile", "HOST", "drive-sync", "up", "--mode", "secondary", "--drive-id", "{drive_serial}:{fs_uuid}", "{mountpoint}"]
 lock = "keydisk"
 timeout = 120
 
@@ -26,6 +26,6 @@ timeout = 120
 name = "keepass-detach"
 tag = "keepass"
 on = ["unmounted"]
-run = ["kp-sync", "--profile", "second-laptop", "drive-sync", "down", "--mode", "secondary", "--drive-id", "{drive_serial}:{fs_uuid}"]
+run = ["kp-sync", "--profile", "HOST", "drive-sync", "down", "--mode", "secondary", "--drive-id", "{drive_serial}:{fs_uuid}"]
 lock = "keydisk"
 timeout = 120

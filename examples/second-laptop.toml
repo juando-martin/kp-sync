@@ -1,14 +1,10 @@
-# Example profile configuration for a second laptop. Configure rclone's
-# "GoogleDrive" remote separately; no credentials belong in this file.
-# Copy this file to ~/.config/kp-sync/second-laptop.toml after adapting paths.
-# Manual integration (writes user units and enables configured activation):
-#   kp-sync --profile second-laptop service install daemon --desktop
-#   kp-sync --profile second-laptop service enable daemon --now
-#   kp-sync --profile second-laptop doctor
-#   kp-sync --profile second-laptop run --app keepassxc
-# udevmon on this laptop should call the profile-specific attach/detach:
-#   kp-sync --profile second-laptop --no-wait attach --drive-id SERIAL:FS_UUID /mounted/drive
-#   kp-sync --profile second-laptop --no-wait detach --drive-id SERIAL:FS_UUID
+# Example profile for a laptop with a persistent hub on an encrypted disk
+# (LUKS or ZFS native encryption). Configure rclone's "GoogleDrive" remote
+# separately; no credentials belong in this file. Name the profile after
+# the host: copy this file to ~/.config/kp-sync/HOST.toml after adapting
+# paths, then follow "Setting up another machine" in examples/README.md.
+# udevmon on this laptop calls the profile-specific attach/detach through
+# drive-sync --mode secondary (udevmon/second-laptop.toml).
 hub = "~/data/pass.kdbx"
 hub_persistent = true
 require_encrypted = true
