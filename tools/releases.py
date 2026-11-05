@@ -184,7 +184,12 @@ def export(tag: str, repo: Path, *, run=subprocess.run) -> Path:
 
 
 def _unit_name(profile: str) -> str:
-    return f"kp-sync@{profile}.service"
+    # An empty profile is the default one (kp-sync.service).
+    return f"kp-sync@{profile}.service" if profile else "kp-sync.service"
+
+
+def _profile_args(profile: str) -> list[str]:
+    return ["--profile", profile] if profile else []
 
 
 def install(
@@ -232,19 +237,22 @@ def install(
     unit = home / ".config" / "systemd" / "user" / _unit_name(profile)
     if not unit.exists():
         done.append(
-            f"no units for profile {profile}; activate with "
-            f"'{command} --profile {profile} service install daemon "
-            "--desktop' and 'service enable daemon --now'"
+            f"no units for profile {profile or '(default)'}; activate with "
+            f"'{' '.join([command, *_profile_args(profile)])} service "
+            "install daemon --desktop' and 'service enable daemon --now'"
         )
         return done
     entry = (
         home / ".local" / "share" / "applications"
     ) / "org.keepassxc.KeePassXC.desktop"
-    desktop = entry.exists() and f"--profile {profile} " in entry.read_text(
-        encoding="utf-8"
+    text = entry.read_text(encoding="utf-8") if entry.exists() else None
+    desktop = text is not None and (
+        f"--profile {profile} " in text
+        if profile
+        else "--profile " not in text
     )
     for action in ["install"] + (["restart"] if restart else []):
-        argv = [command, "--profile", profile, "service", action, "daemon"]
+        argv = [command, *_profile_args(profile), "service", action, "daemon"]
         if action == "install" and desktop:
             argv.append("--desktop")
         if run(argv).returncode != 0:
@@ -370,12 +378,20 @@ def main(argv=None) -> int:
     cut.add_argument("--full-tests", action="store_true")
     put = commands.add_parser("install", help="install a tag")
     put.add_argument("tag")
-    put.add_argument("--profile", default=socket.gethostname().split(".")[0])
+    put.add_argument(
+        "--profile",
+        default=socket.gethostname().split(".")[0],
+        help="profile to refresh (default: the host name; '' = default)",
+    )
     put.add_argument("--no-restart", action="store_true")
     check = commands.add_parser("test", help="test a tag, write a report")
     check.add_argument("tag")
     check.add_argument("--report", type=Path, required=True)
-    check.add_argument("--profile", default=socket.gethostname().split(".")[0])
+    check.add_argument(
+        "--profile",
+        default=socket.gethostname().split(".")[0],
+        help="daemon to watch (default: the host name; '' = default)",
+    )
     for command in (cut, put, check):
         command.add_argument("--repo", type=Path, default=ROOT)
     args = parser.parse_args(argv)

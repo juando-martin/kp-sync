@@ -245,6 +245,31 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(self.calls[2][-2:], ["install", "daemon"])
         self.assertEqual(len(self.calls), 3)
 
+    def test_install_handles_the_default_profile(self):
+        unit = self.home / ".config/systemd/user/kp-sync.service"
+        unit.parent.mkdir(parents=True)
+        unit.write_text("[Service]\n")
+        original = releases.export
+        releases.export = lambda tag, repo, run: self.home / "export"
+        (self.home / "export").mkdir()
+        self.addCleanup(setattr, releases, "export", original)
+        releases.install(
+            "v1.2.4",
+            profile="",
+            home=self.home,
+            python=str(self.home / "venv/bin/python"),
+            run=self.fake_run(),
+        )
+        program = str(self.home / "venv/bin/kp-sync")
+        self.assertEqual(
+            self.calls[2:],
+            [
+                [program, "service", "install", "daemon"],
+                [program, "service", "restart", "daemon"],
+            ],
+        )
+        self.assertEqual(releases._unit_name(""), "kp-sync.service")
+
     def test_install_without_units_only_explains_activation(self):
         done = self.install()
         self.assertEqual(len(self.calls), 2)
