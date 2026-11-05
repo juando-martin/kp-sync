@@ -35,6 +35,7 @@ world-writable configuration files.
 | [udevmon/main-laptop.toml](udevmon/main-laptop.toml) | `drive-sync --mode main` (drive starts and ends the session) with the `rclone-config` credentials provider, in the required order |
 | [udevmon/second-laptop.toml](udevmon/second-laptop.toml) | `drive-sync --mode secondary` for a named profile: drives are only attached and detached |
 | [second-laptop-bundle/udevmon.toml](second-laptop-bundle/udevmon.toml) | the second-laptop bundle's version, also with `rclone-config` |
+| [bash-completion/kps](bash-completion/kps) | Bash completion for an alias such as `kps` (`kp-sync --profile HOST`); install next to the generated `kp-sync` completion (see the README) |
 
 The `rclone-config` helper and its own example live in udevmon's
 `contrib/rclone-config/`.
