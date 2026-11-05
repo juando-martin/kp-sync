@@ -5,6 +5,12 @@ hold the details; design decisions live in the `design/` chapters.
 
 ## Unreleased
 
+### Changed
+
+- Without `~/.config/kp-sync/config.toml`, kp-sync stops and lists the
+  named profiles when any exist, instead of silently running on built-in
+  defaults that reach nothing. Pass `--profile NAME`.
+
 ### Fixed
 
 - `tools/releases.py install` builds in pip's isolated environment when
