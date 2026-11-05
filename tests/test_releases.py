@@ -3,6 +3,7 @@
 import datetime
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -65,7 +66,7 @@ class ReleaseRepoTest(unittest.TestCase):
             "a summary",
             repo=self.repo,
             today=datetime.date(2026, 11, 6),
-            python="python",
+            python=sys.executable,
             run=kwargs.pop("run", self.runner()),
             **kwargs,
         )
@@ -105,9 +106,25 @@ class ReleaseRepoTest(unittest.TestCase):
         self.assertEqual(len(self.checks), 3)
         self.assertNotIn("discover", " ".join(map(" ".join, self.checks)))
 
-    def test_full_tests_add_the_suite(self):
-        self.release(full_tests=True)
-        self.assertIn("discover", self.checks[-1])
+    def test_full_tests_run_a_real_suite_command(self):
+        tests = self.repo / "tests"
+        tests.mkdir()
+        (tests / "test_trivial.py").write_text(
+            "import unittest\n\n\nclass T(unittest.TestCase):\n"
+            "    def test_ok(self):\n        pass\n"
+        )
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "tests")
+        suites = []
+
+        def run(argv, **kwargs):
+            if "discover" in argv:
+                suites.append(argv)
+                return subprocess.run(argv, capture_output=True, **kwargs)
+            return self.runner()(argv, **kwargs)
+
+        self.release(full_tests=True, run=run)
+        self.assertEqual(len(suites), 1)
 
     def test_failed_check_restores_files_and_tags_nothing(self):
         with self.assertRaisesRegex(releases.ReleaseError, "check failed"):

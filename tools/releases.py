@@ -89,7 +89,7 @@ def _check_commands(python: str, full: bool) -> list[list[str]]:
     ]
     if full:
         commands.append(
-            [python, "-m", "unittest", "-q", "discover", "-s", "tests"]
+            [python, "-m", "unittest", "discover", "-q", "-s", "tests"]
         )
     return commands
 
