@@ -376,6 +376,57 @@ class ServicesTest(unittest.TestCase):
         )
         self.assertEqual(run.call_count, 1)
 
+    def test_install_names_the_program_by_absolute_path(self):
+        from kp_sync.integration import InstallPaths
+
+        config = replace(self.config, profile="work")
+        paths = InstallPaths(
+            self.root / "units", self.root / "apps", self.root / "autostart"
+        )
+        run = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+        with patch(
+            "kp_sync.integration.installed_executable",
+            return_value="/home/u/.local/bin/kp-sync",
+        ):
+            manage_daemon_service(
+                config, "install", paths=paths, desktop=True, runner=run
+            )
+        self.assertIn(
+            "ExecStart=/home/u/.local/bin/kp-sync --profile work daemon\n",
+            (paths.unit_dir / "kp-sync@work.service").read_text(),
+        )
+        self.assertIn(
+            "Exec=/home/u/.local/bin/kp-sync --profile work run",
+            (
+                paths.applications_dir / "org.keepassxc.KeePassXC.desktop"
+            ).read_text(),
+        )
+
+    def test_installed_executable_prefers_this_program_and_keeps_links(
+        self,
+    ):
+        from kp_sync.integration import installed_executable
+
+        link = self.root / "bin" / "kp-sync"
+        link.parent.mkdir()
+        target = self.root / "venv-kp-sync"
+        target.write_text("#!/bin/sh\n")
+        link.symlink_to(target)
+        with patch("sys.argv", [str(link)]):
+            self.assertEqual(installed_executable(), str(link))
+        with (
+            patch("sys.argv", ["/usr/lib/python3/unittest/__main__.py"]),
+            patch("shutil.which", return_value="/opt/kp/bin/kp-sync"),
+        ):
+            self.assertEqual(installed_executable(), "/opt/kp/bin/kp-sync")
+        for found in (None, "/opt/with space/kp-sync"):
+            with (
+                self.subTest(found=found),
+                patch("sys.argv", ["python"]),
+                patch("shutil.which", return_value=found),
+            ):
+                self.assertEqual(installed_executable(), "kp-sync")
+
     def test_install_reports_reload_failure_without_enabling(self):
         from kp_sync.integration import InstallPaths
 

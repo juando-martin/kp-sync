@@ -3,6 +3,15 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Fixed
+
+- `kp-sync service install daemon` writes the absolute path of the
+  running `kp-sync` into units and desktop entries. A bare name failed
+  to start (`status=203/EXEC`) when kp-sync lived outside systemd's fixed
+  search path, for example in `~/.local/bin` or a virtual environment.
+
 ## 0.3.3 (2026-11-05)
 
 ### Added

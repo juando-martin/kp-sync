@@ -261,6 +261,11 @@ units and required shared templates, then reloads systemd without enabling
 or starting anything. Menu/autostart entries are written only with
 `--desktop`. Existing activation settings are not changed; file updates
 can affect already-active units, and desktop entries affect future launches.
+Units and entries name the program by the absolute path of the running
+`kp-sync` (symlinks kept, so `~/.local/bin/kp-sync` stays retargetable),
+because systemd resolves a bare `ExecStart` name only in fixed system
+directories; files naming another `kp-sync` path are still recognized as
+generated.
 The old `install-units` CLI is removed rather than retained as an alias.
 The Python `install_units` helper retains its existing default behavior;
 the service command explicitly requests files-only and optional desktop.

@@ -10,6 +10,7 @@ import shutil
 import socket
 import stat
 import subprocess
+import sys
 import uuid
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -174,6 +175,31 @@ def render_desktop_entries(
     }
 
 
+def installed_executable() -> str:
+    """Return the absolute path of this kp-sync for installed files.
+
+    systemd resolves a bare ``ExecStart`` name only in fixed system
+    directories, never in ``~/.local/bin`` or a virtual environment, so
+    units name the program by path. Symlinks are kept, so retargeting
+    a link such as ``~/.local/bin/kp-sync`` updates the installation.
+    Fall back to the bare name when no usable path is found.
+    """
+    argv0 = Path(sys.argv[0])
+    found = (
+        str(argv0)
+        if argv0.name == "kp-sync" and argv0.is_file()
+        else shutil.which("kp-sync")
+    )
+    if found is None:
+        return "kp-sync"
+    path = os.path.abspath(found)
+    if Path(path).name != "kp-sync" or not re.fullmatch(
+        r"[A-Za-z0-9_./+-]+", path
+    ):
+        return "kp-sync"
+    return path
+
+
 def install_units(
     config: Config,
     *,
@@ -310,8 +336,14 @@ def uninstall_files(
                 words = shlex.split(actual_exec)
                 if not words or Path(words[0]).name != "kp-sync":
                     raise InstallError(f"invalid executable in {path}")
+                expected_exec = next(
+                    line[len(key) :]
+                    for line in expected.splitlines()
+                    if line.startswith(key)
+                )
                 expected = expected.replace(
-                    f"{key}kp-sync", f"{key}{words[0]}", 1
+                    f"{key}{shlex.split(expected_exec)[0]}",
+                    f"{key}{words[0]}",
                 )
             if actual != expected:
                 raise InstallError(
