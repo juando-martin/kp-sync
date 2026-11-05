@@ -157,6 +157,64 @@ attach/detach.
 Account changes are not detected by design; all rclone-tagged drives must
 carry one account.
 
+## Proposed improvements
+
+Collected with the owner on 2026-11-05; not yet approved for
+implementation. Each needs its design decisions recorded in the owning
+`design/` chapter before work starts.
+
+1. **Cloud staleness warnings.** `status` reports when the cloud was
+   last reached ("cloud last reached 3 days ago"), and a desktop
+   notification fires when hub edits have waited for the cloud longer
+   than a threshold (about a day). In addition, *always* warn at the
+   start with a dialog when the application is about to run without
+   cloud access, saying how long it has been since the cloud was last
+   reached. Today `confirm_without_cloud` asks only when the hub had to
+   be filled from a copy that may be outdated, and otherwise the user
+   is only notified. Small.
+2. **`kp-sync diff [OLD] [NEW]`.** List the entries and groups added,
+   removed and modified between two history versions (default: the
+   last two), passwords and protected fields masked, to see what a
+   merge or a phone sync changed and to choose a `restore`. Reuses the
+   conflict review's masking and comparison code. Medium.
+3. **`kp-sync setup HOST`.** A guided setup of a new machine: write the
+   host-named profile, read the drive identities, merge the udevmon
+   actions, install the units, add the alias and completion, and finish
+   with a dry run and `doctor` (the steps of "Setting up another
+   machine" in `examples/README.md`). Worth it for more machines or a
+   rebuild. Medium to large.
+4. **`kp-sync profile rename OLD NEW`.** Automate the `beta`/`alpha`
+   renames: refuse while anything is in flight, move the units and the
+   configuration, update the integrations (found by `doctor`'s
+   integration check, including kp-access's `db-path`), and run the
+   first sync. Rare. Medium.
+5. **`kp-sync completion install`.** Write the argcomplete registration
+   and the alias completion (`examples/bash-completion/kps`) into
+   `~/.local/share/bash-completion/completions/`. Small.
+6. **Pendrive integrity check.** On attach, verify the drive's stored
+   history files (bases, `state.json`) against their recorded hashes,
+   to catch a failing stick before it is the only offline copy. Check
+   first which hashes are already recorded. Small.
+7. **Pendrive setup.** A command that prepares a new key drive: copy
+   the current database (and the history the drive store needs) to it,
+   read its serial and filesystem UUID, and add the matching udevmon
+   device (tag `keepass`) and, if missing, the attach/detach or
+   up/down actions for this profile. Never overwrite an existing
+   database on the drive; a drive that already holds one is attached
+   and synchronized normally instead. Medium.
+8. **Debugging a running daemon for one request.** A client's `--debug`
+   asks the daemon to log `DEBUG:` lines for that request only, in the
+   journal (today it prints a note that the daemon is not affected).
+   Needs a protocol field and a per-request log level in the daemon;
+   relaying the lines to the client's terminal is a further option.
+   Medium.
+
+Still open from earlier work (see REQUIRED_INPUT and the acceptance
+table): retiring old session records safely, retiring the old scripts
+on `alpha`, the Windows dialog, and the features not yet seen working
+with real data (production kp-access END cleanup, production restore,
+named SSH/owner services, provider-driven merge).
+
 ## Deferred and supervised work
 
 - Old-script retirement: compare feature parity, then obtain approval
