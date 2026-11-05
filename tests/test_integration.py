@@ -4,6 +4,7 @@ import contextlib
 import runpy
 import subprocess
 import sys
+import json
 import tempfile
 import unittest
 from dataclasses import replace
@@ -630,6 +631,87 @@ class IntegrationTest(unittest.TestCase):
         self.assertTrue(ok, detail)
         self.assertTrue(keyring.revoked)
         self.assertEqual(keyring.timeout, 60)
+
+
+class IntegrationProfileCheckTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.home = Path(self.temp.name)
+        self.profiles = self.home / ".config/kp-sync"
+        self.profiles.mkdir(parents=True)
+        (self.profiles / "alpha.toml").write_text("")
+        self.run_directory = self.home / "run/kp-sync-alpha"
+        self.config = replace(
+            load_config(
+                profile="alpha",
+                environ={"HOME": str(self.home), "XDG_RUNTIME_DIR": "/run"},
+            ),
+            access={"db_path": "/kp/pass.kdbx"},
+        )
+
+    def check(self):
+        from kp_sync.integration import integration_check
+
+        return integration_check(
+            self.config,
+            home=self.home,
+            config_home=self.home / ".config",
+            run_directory=self.run_directory,
+        )
+
+    def udevmon(self, *runs):
+        path = self.home / ".config/udevmon/config.toml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "".join(
+                f'[[actions]]\nname = "a{index}"\nrun = {json.dumps(run)}\n'
+                for index, run in enumerate(runs)
+            )
+        )
+
+    def kp_access(self, command, db_path):
+        path = self.home / ".config/kp-access/config.ini"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            f"[owner]\nfile-op-cmd = {command}\ndb-path = {db_path}\n"
+        )
+
+    def test_nothing_configured_is_fine(self):
+        check = self.check()
+        self.assertTrue(check.ok, check.message)
+
+    def test_udevmon_calls_must_select_an_existing_profile(self):
+        self.udevmon(
+            ["kp-sync", "--profile", "alpha", "drive-sync", "up"],
+            ["rclone-config", "up"],
+        )
+        self.assertTrue(self.check().ok)
+        self.udevmon(
+            ["kp-sync", "drive-sync", "up"],
+            ["kp-sync", "--profile", "laptop", "drive-sync", "down"],
+        )
+        check = self.check()
+        self.assertFalse(check.ok)
+        self.assertIn("'a0' runs kp-sync without --profile", check.message)
+        self.assertIn("names profile 'laptop'", check.message)
+        (self.profiles / "config.toml").write_text("")
+        self.assertNotIn("without --profile", self.check().message)
+
+    def test_kp_access_db_path_must_be_this_profiles_staged_copy(self):
+        staged = self.run_directory / "staging/pass.kdbx"
+        self.kp_access("kp-sync --profile alpha access-op", staged)
+        check = self.check()
+        self.assertTrue(check.ok, check.message)
+        self.kp_access(
+            "kp-sync --profile alpha access-op",
+            "/run/user/1000/kp-sync/staging/pass.kdbx",
+        )
+        check = self.check()
+        self.assertFalse(check.ok)
+        self.assertIn(f"stages the database at {staged}", check.message)
+        self.kp_access("kp-sync access-op", staged)
+        self.assertIn("without --profile", self.check().message)
 
 
 if __name__ == "__main__":

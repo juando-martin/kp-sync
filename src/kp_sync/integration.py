@@ -11,11 +11,12 @@ import shutil
 import socket
 import stat
 import subprocess
+import tomllib
 import sys
 import uuid
 from contextlib import ExitStack
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable, Mapping
 
 from kp_sync.config import (
@@ -207,6 +208,114 @@ def unit_executable_problem(executable: str) -> str | None:
     return (
         f"systemd looks for {executable} only in "
         f"{':'.join(SYSTEMD_SEARCH_PATH)}, where it is not installed"
+    )
+
+
+def _kp_sync_target(argv: list[str]) -> tuple[str, str | None] | None:
+    """Return how ``argv`` picks a kp-sync configuration, or None."""
+    if not argv or Path(argv[0]).name != "kp-sync":
+        return None
+    for index, word in enumerate(argv[1:], 1):
+        for option in ("--profile", "--config"):
+            if word == option and index + 1 < len(argv):
+                return option[2:], argv[index + 1]
+            if word.startswith(option + "="):
+                return option[2:], word.split("=", 1)[1]
+    return "default", None
+
+
+def integration_check(
+    config: Config,
+    *,
+    home: Path,
+    config_home: Path,
+    run_directory: Path,
+) -> Check:
+    """Check that udevmon and kp-access call an existing profile.
+
+    Every ``kp-sync`` command in udevmon's actions and in kp-access's
+    ``[owner] file-op-cmd`` must select a profile or file that exists
+    (no ``--profile`` is only valid with ``config.toml``). When the
+    kp-access command selects this profile, its ``db-path`` must be
+    this profile's staged copy. Files that do not exist are skipped;
+    nothing is changed.
+    """
+    profiles = home / ".config" / "kp-sync"
+    calls: list[tuple[str, list[str]]] = []
+    problems: list[str] = []
+    udevmon = config_home / "udevmon" / "config.toml"
+    if udevmon.is_file():
+        try:
+            actions = tomllib.loads(udevmon.read_text(encoding="utf-8")).get(
+                "actions", []
+            )
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            problems.append(f"cannot read {udevmon}: {exc}")
+            actions = []
+        for action in actions:
+            run = action.get("run") if isinstance(action, dict) else None
+            if isinstance(run, list) and all(isinstance(w, str) for w in run):
+                calls.append((f"udevmon action {action.get('name')!r}", run))
+    access = config_home / "kp-access" / "config.ini"
+    owner: dict[str, str] = {}
+    if access.is_file():
+        parser = configparser.ConfigParser()
+        try:
+            parser.read(access, encoding="utf-8")
+        except (OSError, configparser.Error) as exc:
+            problems.append(f"cannot read {access}: {exc}")
+        if parser.has_section("owner"):
+            owner = {
+                key.replace("-", "_"): value
+                for key, value in parser.items("owner")
+            }
+        command = owner.get("file_op_cmd")
+        if command:
+            try:
+                calls.append(("kp-access file-op-cmd", shlex.split(command)))
+            except ValueError as exc:
+                problems.append(f"cannot parse kp-access file-op-cmd: {exc}")
+    for label, argv in calls:
+        target = _kp_sync_target(argv)
+        if target is None:
+            continue
+        kind, value = target
+        if kind == "default":
+            if not (profiles / "config.toml").is_file():
+                problems.append(f"{label} runs kp-sync without --profile")
+        elif kind == "profile":
+            if not (profiles / f"{value}.toml").is_file():
+                problems.append(
+                    f"{label} names profile {value!r}, which does not exist"
+                )
+        elif not Path(value).expanduser().is_file():
+            problems.append(f"{label} names a missing --config {value}")
+        if (
+            label == "kp-access file-op-cmd"
+            and (value if kind == "profile" else None) == config.profile
+            and isinstance(config.access.get("db_path"), str)
+            and owner.get("db_path")
+        ):
+            staging = Path(
+                config.access.get("staging_dir") or "staging"
+            ).expanduser()
+            if not staging.is_absolute():
+                staging = run_directory / staging
+            expected = staging / PurePosixPath(config.access["db_path"]).name
+            actual = Path(owner["db_path"]).expanduser()
+            if actual != expected:
+                problems.append(
+                    f"kp-access db-path is {actual}, but this profile "
+                    f"stages the database at {expected}"
+                )
+    if problems:
+        return Check("integrations", False, "; ".join(problems))
+    return Check(
+        "integrations",
+        True,
+        f"{sum(_kp_sync_target(argv) is not None for _, argv in calls)} "
+        "kp-sync call(s) in udevmon and kp-access select an existing "
+        "profile",
     )
 
 
@@ -874,6 +983,16 @@ def doctor(
     )
 
     checks.extend(_rclone_checks(config, runner, runtime_dir))
+    checks.append(
+        integration_check(
+            config,
+            home=root,
+            config_home=Path(
+                environ.get("XDG_CONFIG_HOME") or root / ".config"
+            ),
+            run_directory=run_directory,
+        )
+    )
     if config.require_encrypted:
         try:
             ok, detail = (

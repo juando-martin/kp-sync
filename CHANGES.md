@@ -11,6 +11,13 @@ hold the details; design decisions live in the `design/` chapters.
   named profiles when any exist, instead of silently running on built-in
   defaults that reach nothing. Pass `--profile NAME`.
 
+### Added
+
+- `doctor` checks that every `kp-sync` call in udevmon's actions and in
+  kp-access's `file-op-cmd` selects an existing profile, and that
+  kp-access's `db-path` is this profile's staged copy (both had to be
+  found by hand when `alpha` moved to its own profile).
+
 ### Documentation
 
 - The README explains installing Bash completion when
