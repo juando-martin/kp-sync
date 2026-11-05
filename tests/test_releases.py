@@ -2,6 +2,7 @@
 
 import datetime
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -104,11 +105,17 @@ class ReleaseRepoTest(unittest.TestCase):
         ).stdout
         self.assertIn("kp-sync 1.2.4: a summary", message)
         self.assertEqual(len(self.checks), 3)
-        self.assertNotIn("discover", " ".join(map(" ".join, self.checks)))
+        self.assertNotIn("run_tests", " ".join(map(" ".join, self.checks)))
 
     def test_full_tests_run_a_real_suite_command(self):
         tests = self.repo / "tests"
         tests.mkdir()
+        (self.repo / "tools").mkdir()
+        shutil.copy(
+            Path(releases.__file__).with_name("run_tests.py"),
+            self.repo / "tools" / "run_tests.py",
+        )
+        (tests / "__init__.py").write_text("")
         (tests / "test_trivial.py").write_text(
             "import unittest\n\n\nclass T(unittest.TestCase):\n"
             "    def test_ok(self):\n        pass\n"
@@ -118,7 +125,7 @@ class ReleaseRepoTest(unittest.TestCase):
         suites = []
 
         def run(argv, **kwargs):
-            if "discover" in argv:
+            if "tools/run_tests.py" in argv:
                 suites.append(argv)
                 return subprocess.run(argv, capture_output=True, **kwargs)
             return self.runner()(argv, **kwargs)

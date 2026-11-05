@@ -3,6 +3,16 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Added
+
+- `tools/run_tests.py` runs the test suite in parallel, one process per
+  module (about 40 s instead of 80 s on a 4-core laptop);
+  `tools/releases.py` uses it for the full suite. Test databases use a
+  light key derivation, which took the serial suite from about 6.5
+  minutes to 80 s.
+
 ## 0.3.7 (2026-11-05)
 
 ### Added

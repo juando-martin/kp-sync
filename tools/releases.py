@@ -88,9 +88,7 @@ def _check_commands(python: str, full: bool) -> list[list[str]]:
         [python, "-m", "unittest", "-q", "tests.test_documentation"],
     ]
     if full:
-        commands.append(
-            [python, "-m", "unittest", "discover", "-q", "-s", "tests"]
-        )
+        commands.append([python, "tools/run_tests.py"])
     return commands
 
 
@@ -330,7 +328,7 @@ def test(
             ("Focused tests", [python, "-m", "unittest", *FOCUSED_TESTS]),
             (
                 "Full suite",
-                [python, "-m", "unittest", "discover", "-s", "tests"],
+                [python, "tools/run_tests.py"],
             ),
             (
                 "pycodestyle",
