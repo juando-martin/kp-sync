@@ -205,6 +205,15 @@ def install(
     """Install ``tag`` and refresh ``profile``; return what was done."""
     home = home or Path.home()
     done = []
+    # Build in place when the environment has setuptools; otherwise
+    # let pip build in isolation, which may download setuptools.
+    local_build = (
+        run(
+            [python, "-c", "import setuptools.build_meta"],
+            capture_output=True,
+        ).returncode
+        == 0
+    )
     directory = export(tag, repo, run=run)
     try:
         result = run(
@@ -215,7 +224,7 @@ def install(
                 "install",
                 "-q",
                 "--no-deps",
-                "--no-build-isolation",
+                *(["--no-build-isolation"] if local_build else []),
                 str(directory),
             ]
         )
