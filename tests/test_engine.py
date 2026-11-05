@@ -15,7 +15,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from pykeepass import PyKeePass, create_database
+from pykeepass import PyKeePass
+
+from tests.fixtures import create_database
 
 from kp_sync.config import load_config
 from kp_sync.credentials import CredentialProvider

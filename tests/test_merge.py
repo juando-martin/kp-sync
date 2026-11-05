@@ -9,7 +9,9 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from pykeepass import PyKeePass, create_database
+from pykeepass import PyKeePass
+
+from tests.fixtures import create_database
 from pykeepass.exceptions import CredentialsError
 from lxml import etree
 

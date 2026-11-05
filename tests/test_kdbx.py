@@ -4,7 +4,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from pykeepass import PyKeePass, create_database
+from pykeepass import PyKeePass
+
+from tests.fixtures import create_database
 
 from kp_sync.kdbx import KdbxError, inspect_kdbx
 from kp_sync.ui.fake import FakeUI

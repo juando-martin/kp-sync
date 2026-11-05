@@ -35,3 +35,33 @@ def private_tempdir() -> tempfile.TemporaryDirectory:
     """
     base = os.environ.get("XDG_RUNTIME_DIR") or None
     return tempfile.TemporaryDirectory(dir=base, prefix="kp-sync-test-")
+
+
+# Argon2 with 2 passes, 1 MiB and one lane: about 2 ms per open instead
+# of about 0.4 s with pykeepass's defaults (64 MiB, 14 passes). Synced
+# and merged copies keep the header's parameters, so whole engine runs
+# stay fast. Key derivation cost is not what these tests check; the
+# compatibility tests keep KeePassXC's own defaults.
+FAST_ARGON2 = {"I": 2, "M": 1024 * 1024, "P": 1}
+
+
+def create_database(
+    filename, password=None, keyfile=None, transformed_key=None
+):
+    """``pykeepass.create_database`` with a light key derivation."""
+    from pykeepass import create_database as create
+
+    database = create(
+        filename,
+        password=password,
+        keyfile=keyfile,
+        transformed_key=transformed_key,
+    )
+    parameters = (
+        database.kdbx.header.value.dynamic_header.kdf_parameters.data.dict
+    )
+    if all(name in parameters for name in FAST_ARGON2):
+        for name, value in FAST_ARGON2.items():
+            parameters[name].value = value
+        database.save()
+    return database

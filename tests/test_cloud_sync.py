@@ -11,7 +11,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from unittest.mock import patch
 
-from pykeepass import PyKeePass, create_database
+from pykeepass import PyKeePass
+
+from tests.fixtures import create_database
 
 from kp_sync.baseline import CloudStore, DriveStore
 from kp_sync.baseline import BaselineManager

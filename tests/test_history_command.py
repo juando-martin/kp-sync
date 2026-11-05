@@ -3,7 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pykeepass import PyKeePass, create_database
+from pykeepass import PyKeePass
+
+from tests.fixtures import create_database
 
 from kp_sync.backups import backup_file
 from kp_sync.config import load_config
