@@ -3,13 +3,7 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
-## 0.3.6 (2026-11-05)
-
-### Changed
-
-- Without `~/.config/kp-sync/config.toml`, kp-sync stops and lists the
-  named profiles when any exist, instead of silently running on built-in
-  defaults that reach nothing. Pass `--profile NAME`.
+## Unreleased
 
 ### Added
 
@@ -17,6 +11,14 @@ hold the details; design decisions live in the `design/` chapters.
   kp-access's `file-op-cmd` selects an existing profile, and that
   kp-access's `db-path` is this profile's staged copy (both had to be
   found by hand when `alpha` moved to its own profile).
+
+## 0.3.6 (2026-11-05)
+
+### Changed
+
+- Without `~/.config/kp-sync/config.toml`, kp-sync stops and lists the
+  named profiles when any exist, instead of silently running on built-in
+  defaults that reach nothing. Pass `--profile NAME`.
 
 ### Documentation
 
