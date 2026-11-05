@@ -1,8 +1,11 @@
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from pykeepass import PyKeePass, create_database
+from pykeepass import PyKeePass
+
+from tests.fixtures import create_database
 
 from kp_sync.content import content_hash
 
@@ -77,6 +80,14 @@ class ContentHashTest(unittest.TestCase):
             self.assertNotEqual(
                 original, content_hash(path, password="test-password")
             )
+            # MasterKeyChanged has one-second resolution: back-date it
+            # so the change below shows however fast the test runs.
+            database.tree.find("Meta/MasterKeyChanged").text = (
+                database._encode_time(
+                    datetime.now(timezone.utc) - timedelta(hours=1)
+                )
+            )
+            database.save()
             original = content_hash(path, password="test-password")
             database.password = "replacement-password"
             database.save()
