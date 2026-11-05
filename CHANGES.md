@@ -7,6 +7,13 @@ hold the details; design decisions live in the `design/` chapters.
 
 ### Added
 
+- `kp-sync drive-setup MOUNTPOINT NAME` prepares a plugged key drive
+  (udevmon 0.7.0+): it registers the drive and this profile's actions
+  in kp-sync's udevmon drop-in and runs them, so the normal attach
+  fills an empty drive with the current database and history (a drive
+  that already holds one is merged, never overwritten). `--dry-run`
+  shows the plan.
+
 - Once per attachment, a key drive's history bases are checked against
   their SHA-256 names; a damaged one is moved to `damaged/` on the
   drive (never deleted), replaced from a verified copy in the same run,

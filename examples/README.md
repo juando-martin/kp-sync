@@ -58,7 +58,11 @@ on that machine, and nothing here moves or overwrites a database.
    [second-laptop.toml](second-laptop.toml) or
    [main-laptop.toml](main-laptop.toml); check it with
    `kp-sync --profile HOST status` (cached, contacts nothing).
-3. With udevmon 0.7.0 or later: copy the matching udevmon example to
+3. With udevmon 0.7.0 or later, plug each key drive and run
+   `kp-sync --profile HOST drive-setup MOUNT NAME` (`--dry-run` first;
+   `--rclone` for a drive carrying cloud credentials): it registers the
+   drive and this profile's actions in kp-sync's drop-in and syncs it.
+   By hand instead: copy the matching udevmon example to
    `~/.config/udevmon/config.d/50-kp-sync.toml` with `--profile HOST`,
    keeping only its actions, and add each key drive from the plugged
    drive (`udevmon devices add NAME --from-mountpoint MOUNT --tag keepass

@@ -243,15 +243,10 @@ def integration_check(
     profiles = home / ".config" / "kp-sync"
     calls: list[tuple[str, list[str]]] = []
     problems: list[str] = []
-    # udevmon reads config.toml, then its config.d/*.toml drop-ins
-    # (0.7.0+; hidden files and other suffixes are skipped).
-    udevmon_dir = config_home / "udevmon"
-    udevmon_files = [udevmon_dir / "config.toml"] + sorted(
-        path
-        for path in (udevmon_dir / "config.d").glob("*.toml")
-        if not path.name.startswith(".")
-    )
-    for udevmon in udevmon_files:
+    from kp_sync import udevmon as udevmon_config
+
+    # udevmon reads config.toml, then its config.d/*.toml drop-ins.
+    for udevmon in udevmon_config.config_files(config_home / "udevmon"):
         if not udevmon.is_file():
             continue
         try:
