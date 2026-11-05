@@ -142,7 +142,8 @@ provider lives in udevmon `contrib/rclone-config` (branch
 4. **Implemented:** the external rclone deletion and cross-profile scan
    are gone from `_cleanup_runtime`, which drops only private copies; the
    legacy `keydisk.py` hook, its example and tests are removed and the
-   second-laptop bundle uses `drive-sync` plus the provider.
+   second-laptop bundle (retired 2026-11-05) used `drive-sync` plus the
+   provider.
 
 Acceptance also covers the action-ordering race (kp-sync `down` accepted
 before provider `down`), KeePass-only/rclone-only/combined drives,

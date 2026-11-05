@@ -33,8 +33,7 @@ world-writable configuration files.
 | File | Shows |
 |---|---|
 | [udevmon/main-laptop.toml](udevmon/main-laptop.toml) | `drive-sync --mode main` (drive starts and ends the session) with the `rclone-config` credentials provider, in the required order |
-| [udevmon/second-laptop.toml](udevmon/second-laptop.toml) | `drive-sync --mode secondary` for a named profile: drives are only attached and detached |
-| [second-laptop-bundle/udevmon.toml](second-laptop-bundle/udevmon.toml) | the second-laptop bundle's version, also with `rclone-config` |
+| [udevmon/second-laptop.toml](udevmon/second-laptop.toml) | `drive-sync --mode secondary` for a profile named after the host (`HOST`): drives are only attached and detached |
 | [bash-completion/kps](bash-completion/kps) | Bash completion for an alias such as `kps` (`kp-sync --profile HOST`); install next to the generated `kp-sync` completion (see the README) |
 
 The `rclone-config` helper and its own example live in udevmon's
@@ -43,5 +42,31 @@ The `rclone-config` helper and its own example live in udevmon's
 ## Other files
 
 - [keepass](keepass): `~/bin/keepass` wrapper around `kp-sync run`.
-- [second-laptop-bundle/](second-laptop-bundle/): staged installation
-  instructions for a second laptop; read its `AGENTS.md` first.
+
+## Setting up another machine
+
+The steps used for `beta` and `alpha`; each needs the owner's approval
+on that machine, and nothing here moves or overwrites a database.
+
+1. Install a release tag, not the checkout:
+   `~/.venvs/tools/bin/python tools/releases.py install vX.Y.Z --profile HOST`
+   (it explains the activation commands when no units exist yet), and
+   link `~/.local/bin/kp-sync` to the environment's `kp-sync`.
+2. Write `~/.config/kp-sync/HOST.toml` (mode 0600) from
+   [second-laptop.toml](second-laptop.toml) or
+   [main-laptop.toml](main-laptop.toml); check it with
+   `kp-sync --profile HOST status` (cached, contacts nothing).
+3. Read each key drive's real serial and filesystem UUID (`lsblk -o
+   NAME,SERIAL,UUID`) and merge the matching udevmon example into
+   `~/.config/udevmon/config.toml` with `--profile HOST`; check with
+   `udevmon check` and `udevmon explain mounted`.
+4. Close the application and disable any older startup, then
+   `kp-sync --profile HOST service install daemon --desktop` and
+   `service enable daemon --now`. Install refuses group-writable
+   directories and an executable systemd cannot start, listing every
+   problem first.
+5. `kp-sync --profile HOST sync --dry-run --no-daemon --ui none`, then a
+   real sync; an older hub is merged or, when dominated, backed up and
+   replaced, never silently overwritten.
+6. Start udevmon (`udevmon service install --now`), add
+   `alias kps='kp-sync --profile HOST'` and the Bash completion (README).

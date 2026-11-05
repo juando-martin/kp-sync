@@ -3,6 +3,15 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Added
+
+- `doctor` checks that every `kp-sync` call in udevmon's actions and in
+  kp-access's `file-op-cmd` selects an existing profile, and that
+  kp-access's `db-path` is this profile's staged copy (both had to be
+  found by hand when `alpha` moved to its own profile).
+
 ## 0.3.6 (2026-11-05)
 
 ### Changed

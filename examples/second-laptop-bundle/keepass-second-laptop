@@ -1,2 +1,0 @@
-#!/bin/sh
-exec "$HOME/.venvs/tools/bin/kp-sync" --profile second-laptop run --app keepassxc -- "$@"
