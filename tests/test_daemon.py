@@ -7,6 +7,8 @@ import tempfile
 import threading
 import time
 import unittest
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -775,6 +777,150 @@ class DaemonTest(unittest.TestCase):
                     environment={"DISPLAY": ":synthetic"},
                 )
                 self.assertIn("app:keepassxc", controller.leases.leases)
+
+    def _cloud_config(self, **launch):
+        from dataclasses import replace
+
+        from kp_sync.config import EndpointConfig
+
+        return replace(
+            self.config,
+            endpoints=(EndpointConfig("cloud", "rclone", remote="gd"),),
+            launch={**self.config.launch, **launch},
+        )
+
+    def _offline_controller(self, config):
+        controller = self.controller(
+            lambda: SyncResult(
+                current=None,
+                action="unchanged",
+                classifications={"cloud:gd": "unchanged"},
+                missing=("cloud:gd",),
+            )
+        )
+        controller.config = config
+        config.hub.parent.mkdir(parents=True, exist_ok=True)
+        config.hub.write_bytes(b"synthetic hub")
+        controller.apps = Mock()
+        controller.apps.refresh.return_value = []
+        return controller
+
+    def test_launch_without_cloud_warns_with_a_dialog_beside_the_app(self):
+        from kp_sync import cloud_contact
+
+        controller = self._offline_controller(self._cloud_config())
+        cloud_contact.record(
+            controller.directory,
+            ["cloud:gd"],
+            now=datetime.now(timezone.utc) - timedelta(days=2),
+        )
+        shown = threading.Event()
+        dialogs = []
+
+        class UI:
+            def warn(self, message):
+                dialogs.append(message)
+                shown.set()
+
+            def confirm(self, prompt, *, default=False):
+                raise AssertionError("no question without the setting")
+
+        with patch.object(controller, "_desktop_ui", return_value=UI()):
+            outcome = controller.handle({"command": "up"})
+            self.assertTrue(shown.wait(5))
+        controller.apps.start.assert_called_once()
+        self.assertEqual(outcome["action"], "unchanged")
+        self.assertIn("cloud:gd: last reached 2d ago", dialogs[0])
+
+    def test_launch_without_cloud_asks_with_confirm_without_cloud(self):
+        controller = self._offline_controller(
+            self._cloud_config(confirm_without_cloud=True)
+        )
+        prompts = []
+
+        class UI:
+            def confirm(self, prompt, *, default=False):
+                prompts.append(prompt)
+                return False
+
+        with patch.object(controller, "_desktop_ui", return_value=UI()):
+            outcome = controller.handle({"command": "up"})
+        self.assertEqual(outcome["action"], "launch cancelled")
+        controller.apps.start.assert_not_called()
+        self.assertIn("not reached since this machine started", prompts[0])
+        self.assertIn("Launch the existing database?", prompts[0])
+
+    def test_launch_with_cloud_reached_shows_no_dialog(self):
+        controller = self._offline_controller(self._cloud_config())
+        controller.engine_factory = lambda ui: type(
+            "Engine",
+            (),
+            {
+                "sync": lambda self, dry_run=False: SyncResult(
+                    current=None,
+                    action="unchanged",
+                    classifications={"cloud:gd": "unchanged"},
+                )
+            },
+        )()
+        with patch.object(
+            controller, "_desktop_ui", side_effect=AssertionError("dialog")
+        ):
+            controller.handle({"command": "up"})
+        controller.apps.start.assert_called_once()
+
+    def test_stale_cloud_notifies_once_per_period_when_hub_changed(self):
+        import hashlib
+
+        from kp_sync import cloud_contact
+        from kp_sync.state import HistoryState
+
+        config = self._cloud_config()
+        controller = self._offline_controller(config)
+        synced = b"synced hub"
+        version = hashlib.sha256(synced).hexdigest()
+        state = HistoryState()
+        state.commit(
+            version, (), "test", (f"hub:{config.host}", "cloud:gd"), size=10
+        )
+        state.save(controller.directory / "state.json")
+        offline = SyncResult(
+            current=version,
+            action="unchanged",
+            classifications={"cloud:gd": "unchanged"},
+            missing=("cloud:gd",),
+        )
+        now = datetime.now(timezone.utc)
+        notices = []
+        with patch.object(controller, "_notify", side_effect=notices.append):
+            config.hub.write_bytes(synced)
+            cloud_contact.record(
+                controller.directory, ["cloud:gd"], now=now - timedelta(days=2)
+            )
+            controller._warn_stale_cloud(offline)
+            self.assertEqual(notices, [], "hub unchanged: nothing waits")
+            config.hub.write_bytes(b"edited offline")
+            cloud_contact.record(
+                controller.directory,
+                ["cloud:gd"],
+                now=now - timedelta(hours=1),
+            )
+            controller._warn_stale_cloud(offline)
+            self.assertEqual(notices, [], "cloud reached an hour ago")
+            cloud_contact.record(
+                controller.directory, ["cloud:gd"], now=now - timedelta(days=2)
+            )
+            controller._warn_stale_cloud(offline)
+            self.assertEqual(len(notices), 1)
+            self.assertIn("have not reached the cloud", notices[0])
+            controller._warn_stale_cloud(offline)
+            self.assertEqual(len(notices), 1, "once per period")
+            controller.config = replace(
+                config, daemon={**config.daemon, "cloud_warning_hours": 0}
+            )
+            (controller.directory / cloud_contact.WARNED).unlink()
+            controller._warn_stale_cloud(offline)
+            self.assertEqual(len(notices), 1, "0 disables")
 
     def test_up_still_presyncs_before_reusing_running_application(self):
         controller = self.controller()

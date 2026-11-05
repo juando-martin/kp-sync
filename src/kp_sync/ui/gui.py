@@ -182,6 +182,11 @@ class ZenityUI(_TkReviewMixin, UI):
             f"GUI dialog exited with status {result.returncode}"
         )
 
+    def warn(self, message: str) -> None:
+        _run_dialog(
+            ["zenity", "--warning", "--text", message], timeout=self.timeout
+        )
+
     def choose(self, prompt: str, options: Iterable[str]) -> str | None:
         result = _run_dialog(
             [
@@ -238,6 +243,12 @@ class KDialogUI(_TkReviewMixin, UI):
     def __init__(self, *, timeout: int = 600) -> None:
         """Set the maximum duration for each dialog."""
         self.timeout = timeout
+
+    def warn(self, message: str) -> None:
+        _run_dialog(
+            ["kdialog", "--title", "KeePass sync", "--sorry", message],
+            timeout=self.timeout,
+        )
 
     def confirm(self, prompt: str, *, default: bool = False) -> bool | None:
         result = _run_dialog(

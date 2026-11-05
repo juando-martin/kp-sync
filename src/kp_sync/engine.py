@@ -29,6 +29,7 @@ from kp_sync.classify import (
     classify_all,
 )
 from kp_sync.config import Config, EndpointConfig, validate_hub_encryption
+from kp_sync import cloud_contact
 from kp_sync.content import content_hash
 from kp_sync.credentials import CredentialError, CredentialProvider
 from kp_sync.drives import DriveEndpoint, DriveError, list_drives
@@ -139,6 +140,9 @@ class SyncResult:
     decisions: dict[str, object] = field(default_factory=dict)
     sessions: dict[str, dict[str, object]] = field(default_factory=dict)
     summary: dict[str, int] = field(default_factory=dict)
+    # Per cloud identity: when this machine last reached it, and when
+    # its copy was last synchronized (status only; see cloud_contact).
+    cloud: dict[str, dict[str, object]] = field(default_factory=dict)
 
     @property
     def consistent(self) -> bool:
@@ -310,6 +314,19 @@ class SyncEngine:
                                 json.dumps(result.to_dict(), sort_keys=True)
                                 + "\n",
                             )
+                        from kp_sync.endpoints.rclone import RcloneEndpoint
+
+                        cloud_contact.record(
+                            self.run_directory,
+                            cloud_contact.reached_in(
+                                result,
+                                [
+                                    endpoint.identity
+                                    for endpoint in self.endpoints
+                                    if isinstance(endpoint, RcloneEndpoint)
+                                ],
+                            ),
+                        )
                         debug(
                             f"sync finished: {result.action}, current "
                             f"{_short(result.current)}"
@@ -443,6 +460,13 @@ class SyncEngine:
             classifications = last.get("classifications", {})
         if decisions:
             action = "pending"
+        cloud = cloud_contact.last_contact(
+            self.run_directory,
+            cloud_contact.cloud_identities(self.config),
+            state.copies,
+        )
+        for contact in cloud.values():
+            contact["description"] = cloud_contact.describe(contact)
         return SyncResult(
             current=current,
             action=action,
@@ -453,6 +477,7 @@ class SyncEngine:
             decisions=decisions,
             sessions=sessions,
             summary=summary,
+            cloud=cloud,
         )
 
     def retire_session(

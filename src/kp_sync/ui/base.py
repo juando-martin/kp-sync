@@ -93,6 +93,10 @@ class UI(ABC):
         """
         return None
 
+    def warn(self, message: str) -> None:
+        """Show a warning the user acknowledges; defaults to notify."""
+        self.notify(message)
+
     def notify(self, message: str) -> None:
         """Report information without requiring a response."""
         from kp_sync.log import info

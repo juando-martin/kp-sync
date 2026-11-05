@@ -3,6 +3,17 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Added
+
+- When the pre-launch sync cannot reach the cloud, a warning dialog says
+  so and how long it has been since the cloud was last reached (with
+  `confirm_without_cloud`, the same text is a question). `status` shows
+  when each cloud was last reached from this machine, and a notification
+  appears when hub changes have waited longer than
+  `[daemon] cloud_warning_hours` (default 24) for the cloud.
+
 ## 0.3.8 (2026-11-06)
 
 ### Changed

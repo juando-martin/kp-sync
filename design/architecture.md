@@ -236,7 +236,8 @@ Status: design only. Implementation is a later phase.
 - Launch KeePassXC, or raise and move to the current desktop an existing
   window (`wmctrl`); `keepass-legacy` for the old mono KeePass.
 - Ask whether to launch when the cloud is unreachable
-  (`confirm_without_cloud`).
+  (`confirm_without_cloud`); otherwise a warning dialog says how long
+  since the cloud was last reached (see Lifecycle).
 - Sync progress dialog (zenity pulsate) when a display is present.
 - `kp-access-file-op` behaviour (now `kp-sync access-op`).
 - sshfs sessions in `ro` and `rw` mode with copy back (now through `sync`).

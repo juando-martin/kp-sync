@@ -79,6 +79,7 @@ _TABLE_KEYS = {
         "idle_sync",
         "idle_sync_interval",
         "rescue_wait",
+        "cloud_warning_hours",
     },
     "sync": {"lock_timeout", "max_restarts"},
     "launch": {"default_app", "confirm_without_cloud", "quit_on_last_drive"},
@@ -703,6 +704,7 @@ def load_config(
             "idle_sync": bool,
             "idle_sync_interval": int,
             "rescue_wait": int,
+            "cloud_warning_hours": int,
         },
         "sync": {"lock_timeout": int, "max_restarts": int},
         "launch": {
@@ -752,6 +754,7 @@ def load_config(
             "idle_sync": None,
             "idle_sync_interval": 3600,
             "rescue_wait": 60,
+            "cloud_warning_hours": 24,
         },
         "sync": {"lock_timeout": 60, "max_restarts": 3},
         "launch": {
@@ -924,6 +927,7 @@ def _validate_values(
         ("daemon", "access_lease_ttl"),
         ("daemon", "idle_sync_interval"),
         ("daemon", "rescue_wait"),
+        ("daemon", "cloud_warning_hours"),
         ("sessions", "session_key_ttl"),
         ("daemon", "debounce"),
     ):
