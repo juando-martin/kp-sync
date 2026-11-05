@@ -1757,7 +1757,9 @@ class DaemonTest(unittest.TestCase):
                 EndpointConfig(
                     "cloud", "rclone", remote="gd", rclone_transport="auto"
                 ),
-                EndpointConfig("plain", "rclone", remote="gd2"),
+                EndpointConfig(
+                    "plain", "rclone", remote="gd2", rclone_transport="cli"
+                ),
             ),
         )
         controller = Controller(config)

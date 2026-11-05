@@ -824,7 +824,9 @@ class EndpointsFromConfigTest(unittest.TestCase):
                 EndpointConfig(
                     "auto", "rclone", remote="gd", rclone_transport="auto"
                 ),
-                EndpointConfig("cli", "rclone", remote="gd2"),
+                EndpointConfig(
+                    "cli", "rclone", remote="gd2", rclone_transport="cli"
+                ),
             ),
         )
         with patch("kp_sync.engine.list_drives", return_value=[]):

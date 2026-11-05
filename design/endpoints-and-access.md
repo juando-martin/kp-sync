@@ -165,8 +165,8 @@
     `keydisk.lock` still protect the hub during a reinsert in the middle
     of a slow `down`. `~/.dynamic_config` is neither created nor read.
 - **Optional rcd transport** (`rclone_transport = "auto"` on an `rclone`
-  endpoint; default `"cli"`, plain rclone commands; `"auto"` stays opt-in
-  until it is tested on `alpha`). Each rclone call re-authenticates and
+  endpoint, the default since 0.3.3 after the owner tested it with the
+  real daemon on `alpha`; `"cli"` keeps plain rclone commands). Each rclone call re-authenticates and
   re-resolves its paths (1–4 s on Google Drive); a persistent
   `rclone rcd` keeps both in memory (`src/kp_sync/rclone_rcd.py`).
   - *Socket only.* `rcd` listens on

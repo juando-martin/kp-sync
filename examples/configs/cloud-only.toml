@@ -21,8 +21,9 @@ type = "rclone"
 # Remote name plus an optional folder. The database is
 # GoogleDrive:kp/pass.kdbx (db_name defaults to pass.kdbx).
 remote = "GoogleDrive:kp"
-# rclone_transport = "cli" is the default: one rclone process per call.
-# See cloud-rcd.toml for the faster persistent transport.
+# rclone_transport = "auto" is the default: the daemon's persistent
+# rclone rcd when available (see cloud-rcd.toml); "cli" forces one rclone
+# process per call.
 
 [baseline]
 # Only the cloud holds history here. The default list also names

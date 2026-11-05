@@ -3,6 +3,20 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Added
+
+- `require_encrypted` accepts a persistent hub on a ZFS dataset with
+  native encryption and its key loaded, as well as on dm-crypt/LUKS.
+
+### Changed
+
+- `rclone_transport` now defaults to `"auto"`: the daemon keeps a
+  persistent `rclone rcd` per rclone endpoint (rclone 1.61 or later) and
+  falls back to plain commands otherwise. Set `"cli"` to keep separate
+  rclone processes.
+
 ## 0.3.2 (2026-11-04)
 
 ### Added

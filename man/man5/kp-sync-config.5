@@ -76,7 +76,10 @@ When the hub is persistent, refuse to use it unless it is on a
 dm-crypt/LUKS device (checked with
 .BR findmnt (8)
 and
-.BR lsblk (8)).
+.BR lsblk (8))
+or on a ZFS dataset with native encryption whose key is loaded (checked
+with
+.BR "zfs get encryption,keystatus" ).
 Set
 .B false
 only for a hub on storage encrypted by other means.
@@ -263,7 +266,7 @@ SHA-256, Dropbox's content hash, ...) identifies a known version without
 a download; remotes without such a hash are downloaded every run. A custom
 probe disables the combined listing.
 .TP
-.BR rclone_transport " (string, default \(dqcli\(dq)"
+.BR rclone_transport " (string, default \(dqauto\(dq)"
 .RS
 .TP
 .B cli
