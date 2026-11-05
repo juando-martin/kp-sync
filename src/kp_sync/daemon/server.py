@@ -797,6 +797,15 @@ class Controller:
             if command == "lease" and kind == "session":
                 return {"action": "lease"}
             return self.queue_sync(request, connection).result()
+        if command in {"up", "down"} and self.config.hub_persistent:
+            # Main-mode drive events start and quit applications, which
+            # a machine with a persistent hub normally does not want.
+            info(
+                f"WARNING: {command} on a profile with a persistent hub "
+                f"{'starts' if command == 'up' else 'may quit'} "
+                "KeePassXC; drive hooks for this machine should use "
+                "drive-sync --mode secondary (attach/detach)"
+            )
         if command in {"attach", "up"} and request.get("mountpoint"):
             mount = Path(request["mountpoint"]).expanduser().resolve()
             actual = self.drive_resolver(mount)

@@ -214,6 +214,7 @@ def _check_daemon_shutdown(unit: str, *, runner=subprocess.run) -> None:
             "--property=Result",
             "--property=ExecMainCode",
             "--property=ExecMainStatus",
+            "--property=ActiveState",
             "--no-pager",
             unit,
         ],
@@ -245,6 +246,16 @@ def _check_daemon_shutdown(unit: str, *, runner=subprocess.run) -> None:
         raise ServiceError(
             f"systemd reported an invalid exit status for {unit}"
         ) from exc
+    if (
+        code == "0"
+        and failure == "success"
+        and values.get("ActiveState") == "inactive"
+    ):
+        # No exit record: once its triggers are stopped, nothing refers
+        # to the stopped unit, so systemd unloads it at once. An unclean
+        # stop leaves the unit failed, and failed units keep their
+        # record, so this combination means a clean stop.
+        return
     if not failure or code not in {"exited", "killed", "dumped"}:
         raise ServiceError(f"could not verify shutdown result for {unit}")
     if failure and failure != "success":
@@ -304,6 +315,7 @@ def manage_daemon_service(
             enable=False,
             desktop=desktop,
             runner=runner,
+            check_executable=True,
         )
         result = _daemon_systemctl(["daemon-reload"], runner=runner)
         if result.returncode:

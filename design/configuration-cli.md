@@ -153,7 +153,7 @@ source = "runtime"
 | `kp-sync run [--app NAME] [-- ARGS ...]` | pre-sync, start the application (or raise it if running) and hold a lease for its life; used by `~/bin/keepass`, the menu entry and autostart |
 | `kp-sync up [--drive-id ID] [MOUNTPOINT]` | `attach` (if a mount point is given), then `run` the default application; idempotent (udevmon on the main laptop) |
 | `kp-sync attach [--drive-id SERIAL:FS_UUID] MOUNTPOINT` | register the drive (identity looked up with `lsblk` if not given), take its lease and sync the hub, the cloud and it (udevmon on other machines) |
-| `kp-sync drive-sync up\|down --mode main\|secondary --drive-id ID [MOUNTPOINT]` | implemented: the udevmon drive action; validates identity, keeps the pending-up marker and submits `up`/`down` (`main`) or `attach`/`detach` (`secondary`) with `--no-wait`; `--profile` and `--mode` are required; never touches rclone credentials (see Integration points) |
+| `kp-sync drive-sync up\|down --mode main\|secondary --drive-id ID [MOUNTPOINT]` | implemented: the udevmon drive action; validates identity, keeps the pending-up marker and submits `up`/`down` (`main`) or `attach`/`detach` (`secondary`) with `--no-wait`; `--profile` and `--mode` are required; never touches rclone credentials (see Integration points). On a profile with a persistent hub the daemon logs a warning for `up`/`down`, which start and quit applications; such machines normally use `secondary` |
 | `kp-sync detach [--drive-id ID] [MOUNTPOINT]` | release the drive's lease (the drive is usually gone already) and warn if it missed a due sync |
 | `kp-sync sync [--dry-run]` | ask the daemon for a sync (the algorithm below) and wait for its result |
 | `kp-sync resolve` | handle pending decisions now, on this terminal or on the desktop |
@@ -254,7 +254,12 @@ without a matching installed profile unit are rejected. Operations run
 directly through systemd, not through the daemon being managed. Start and
 restart verify control-socket readiness; status never activates the daemon.
 Stop does not disable socket/path/timer activation, which may start it again.
-Failures are explicit; no forced-kill fallback is added.
+Failures are explicit; no forced-kill fallback is added. A stop counts as
+clean when systemd reports a normal exit or SIGTERM, or, once nothing
+references the stopped unit (its triggers already stopped, as in
+`disable --now` and `uninstall`), no exit record with `Result=success`
+and an inactive unit: an unclean stop leaves the unit failed, and systemd
+keeps failed units with their record.
 
 `service install daemon [--desktop]` writes or refreshes selected-profile
 units and required shared templates, then reloads systemd without enabling
@@ -265,7 +270,10 @@ Units and entries name the program by the absolute path of the running
 `kp-sync` (symlinks kept, so `~/.local/bin/kp-sync` stays retargetable),
 because systemd resolves a bare `ExecStart` name only in fixed system
 directories; files naming another `kp-sync` path are still recognized as
-generated.
+generated. Before writing anything, install checks every target
+directory and that systemd can start that program, and reports all
+problems together; `doctor` repeats the program check on the installed
+daemon unit.
 The old `install-units` CLI is removed rather than retained as an alias.
 The Python `install_units` helper retains its existing default behavior;
 the service command explicitly requests files-only and optional desktop.

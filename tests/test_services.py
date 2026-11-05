@@ -384,23 +384,58 @@ class ServicesTest(unittest.TestCase):
             self.root / "units", self.root / "apps", self.root / "autostart"
         )
         run = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+        program = self.root / "bin" / "kp-sync"
+        program.parent.mkdir()
+        program.write_text("#!/bin/sh\n")
+        program.chmod(0o755)
         with patch(
             "kp_sync.integration.installed_executable",
-            return_value="/home/u/.local/bin/kp-sync",
+            return_value=str(program),
         ):
             manage_daemon_service(
                 config, "install", paths=paths, desktop=True, runner=run
             )
         self.assertIn(
-            "ExecStart=/home/u/.local/bin/kp-sync --profile work daemon\n",
+            f"ExecStart={program} --profile work daemon\n",
             (paths.unit_dir / "kp-sync@work.service").read_text(),
         )
         self.assertIn(
-            "Exec=/home/u/.local/bin/kp-sync --profile work run",
+            f"Exec={program} --profile work run",
             (
                 paths.applications_dir / "org.keepassxc.KeePassXC.desktop"
             ).read_text(),
         )
+
+    def test_install_reports_every_problem_before_writing(self):
+        from kp_sync.integration import InstallError, InstallPaths
+
+        config = replace(self.config, profile="work")
+        paths = InstallPaths(
+            self.root / "units", self.root / "apps", self.root / "autostart"
+        )
+        for directory in (paths.unit_dir, paths.applications_dir):
+            directory.mkdir()
+            directory.chmod(0o775)
+        run = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+        with (
+            patch(
+                "kp_sync.integration.installed_executable",
+                return_value=str(self.root / "missing" / "kp-sync"),
+            ),
+            self.assertRaises(InstallError) as raised,
+        ):
+            manage_daemon_service(
+                config, "install", paths=paths, desktop=True, runner=run
+            )
+        message = str(raised.exception)
+        self.assertIn("missing/kp-sync is not an executable file", message)
+        self.assertIn(f"group- or world-writable: {paths.unit_dir}", message)
+        self.assertIn(
+            f"group- or world-writable: {paths.applications_dir}", message
+        )
+        self.assertEqual(list(paths.unit_dir.iterdir()), [])
+        self.assertFalse(paths.autostart_dir.exists())
+        run.assert_not_called()
 
     def test_installed_executable_prefers_this_program_and_keeps_links(
         self,
@@ -766,6 +801,44 @@ class ServicesTest(unittest.TestCase):
         with self.assertRaisesRegex(ServiceError, "terminated by signal 9"):
             manage_daemon_service(config, "stop", runner=runner)
 
+    def test_daemon_stop_accepts_an_unloaded_unit_only_when_clean(self):
+        config = self.default_daemon_config()
+
+        def runner_with(shown):
+            def runner(argv, **kwargs):
+                if argv[2] == "is-active":
+                    return subprocess.CompletedProcess(argv, 0, "active\n", "")
+                if argv[2] == "show":
+                    return subprocess.CompletedProcess(argv, 0, shown, "")
+                return subprocess.CompletedProcess(argv, 0, "", "")
+
+            return runner
+
+        unloaded = (
+            "Result=success\nExecMainCode=0\nExecMainStatus=0\n"
+            "ActiveState=inactive\n"
+        )
+        with patch("kp_sync.services.info"):
+            self.assertEqual(
+                manage_daemon_service(
+                    config, "stop", runner=runner_with(unloaded)
+                ),
+                0,
+            )
+        for shown in (
+            unloaded.replace("ActiveState=inactive", "ActiveState=failed"),
+            unloaded.replace("Result=success", "Result=timeout"),
+            unloaded.replace("ActiveState=inactive", "ActiveState=active"),
+            unloaded.replace("ActiveState=inactive\n", ""),
+        ):
+            with (
+                self.subTest(shown=shown),
+                self.assertRaises(ServiceError),
+            ):
+                manage_daemon_service(
+                    config, "stop", runner=runner_with(shown)
+                )
+
     def test_daemon_restart_stops_then_starts_and_checks_readiness(self):
         calls = []
         ready = Mock(return_value=True)
@@ -804,6 +877,7 @@ class ServicesTest(unittest.TestCase):
                     "--property=Result",
                     "--property=ExecMainCode",
                     "--property=ExecMainStatus",
+                    "--property=ActiveState",
                     "--no-pager",
                     "kp-sync.service",
                 ],

@@ -6,6 +6,7 @@ import configparser
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import stat
@@ -175,6 +176,40 @@ def render_desktop_entries(
     }
 
 
+# systemd's fixed search path for a bare ExecStart name
+# (systemd.service(5)); it never uses the manager's PATH for this.
+SYSTEMD_SEARCH_PATH = (
+    "/usr/local/sbin",
+    "/usr/local/bin",
+    "/usr/sbin",
+    "/usr/bin",
+    "/sbin",
+    "/bin",
+)
+
+
+def unit_executable_problem(executable: str) -> str | None:
+    """Return why systemd could not start ``executable``, or None."""
+    if os.path.isabs(executable):
+        candidates = [executable]
+    else:
+        candidates = [
+            os.path.join(directory, executable)
+            for directory in SYSTEMD_SEARCH_PATH
+        ]
+    if any(
+        os.path.isfile(candidate) and os.access(candidate, os.X_OK)
+        for candidate in candidates
+    ):
+        return None
+    if os.path.isabs(executable):
+        return f"{executable} is not an executable file"
+    return (
+        f"systemd looks for {executable} only in "
+        f"{':'.join(SYSTEMD_SEARCH_PATH)}, where it is not installed"
+    )
+
+
 def installed_executable() -> str:
     """Return the absolute path of this kp-sync for installed files.
 
@@ -212,8 +247,14 @@ def install_units(
     enable: bool = True,
     desktop: bool = True,
     runner: Callable = subprocess.run,
+    check_executable: bool = False,
 ) -> tuple[Path, ...]:
-    """Install user unit and desktop files; optionally enable units."""
+    """Install user unit and desktop files; optionally enable units.
+
+    Every directory (and, with ``check_executable``, the program the
+    units start) is checked before anything is written, and all
+    problems are reported together.
+    """
     if paths is not None and any(
         value is not None
         for value in (unit_dir, applications_dir, autostart_dir)
@@ -244,6 +285,18 @@ def install_units(
     directories = [paths.unit_dir]
     if desktop:
         directories.extend((paths.applications_dir, paths.autostart_dir))
+    problems = []
+    if check_executable:
+        problem = unit_executable_problem(executable)
+        if problem is not None:
+            problems.append(problem)
+    for directory in directories:
+        try:
+            _ensure_safe_directory(directory, create=False)
+        except InstallError as exc:
+            problems.append(str(exc))
+    if problems:
+        raise InstallError("; ".join(problems))
     for directory in directories:
         _ensure_safe_directory(directory)
     for filename, contents in render_units(
@@ -291,7 +344,6 @@ def uninstall_files(
     Remove only unmodified generated files. Include desktop entries only
     when their removal is explicitly requested.
     """
-    import shlex
 
     paths = paths or default_install_paths()
     units = render_units(config)
@@ -531,6 +583,31 @@ def doctor(
         )
     try:
         service_text = _read_regular_file(expected_files["daemon service"])
+        exec_start = next(
+            (
+                line.removeprefix("ExecStart=")
+                for line in service_text.splitlines()
+                if line.startswith("ExecStart=")
+            ),
+            "",
+        )
+        words = shlex.split(exec_start)
+        problem = (
+            unit_executable_problem(words[0])
+            if words
+            else "daemon service has no ExecStart"
+        )
+        checks.append(
+            Check(
+                "unit:daemon-executable",
+                problem is None,
+                (
+                    f"systemd can start {words[0]}"
+                    if problem is None
+                    else f"{problem}; reinstall with service install daemon"
+                ),
+            )
+        )
         service_ok = all(
             directive in service_text
             for directive in (
@@ -977,7 +1054,7 @@ def _systemd_path(value: str) -> str:
     )
 
 
-def _ensure_safe_directory(path: Path) -> None:
+def _ensure_safe_directory(path: Path, *, create: bool = True) -> None:
     path = path.expanduser()
     if not path.is_absolute():
         raise InstallError(f"installation directory must be absolute: {path}")
@@ -1009,6 +1086,8 @@ def _ensure_safe_directory(path: Path) -> None:
             raise InstallError(
                 f"installation path is group- or world-writable: {component}"
             )
+    if not create:
+        return
     try:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
         metadata = path.lstat()

@@ -3,6 +3,25 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Fixed
+
+- `service uninstall daemon` and `service disable daemon --now` no
+  longer refuse a clean daemon stop with "could not verify shutdown
+  result" (systemd drops the exit record of a stopped unit that nothing
+  references).
+
+### Added
+
+- `service install daemon` checks every target directory and that
+  systemd can start the `kp-sync` it names before writing anything, and
+  reports all problems at once; `doctor` checks the installed daemon
+  unit's program too.
+- The daemon logs a warning when `up`/`down` (main-mode drive events,
+  which start and quit applications) reach a profile with a persistent
+  hub; use `drive-sync --mode secondary` there.
+
 ## 0.3.4 (2026-11-05)
 
 ### Fixed
