@@ -212,6 +212,30 @@ class ConfigTest(unittest.TestCase):
                         config.endpoints[0].probe_is_content_hash, expected
                     )
 
+    def test_missing_default_config_with_named_profiles_needs_a_profile(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            environ = {"HOME": temp_dir, "XDG_RUNTIME_DIR": temp_dir}
+            self.assertIsNone(load_config(environ=environ).source)
+            directory = Path(temp_dir) / ".config" / "kp-sync"
+            directory.mkdir(parents=True)
+            (directory / "beta.toml").write_text("")
+            (directory / "kp-test.toml").write_text("")
+            (directory / "notes.txt").write_text("")
+            with self.assertRaisesRegex(
+                ConfigError, "--profile with one of: beta, kp-test"
+            ):
+                load_config(environ=environ)
+            self.assertEqual(
+                load_config(profile="beta", environ=environ).profile,
+                "beta",
+            )
+            (directory / "config.toml").write_text("")
+            self.assertEqual(
+                load_config(environ=environ).source, directory / "config.toml"
+            )
+
     def test_rclone_transport_defaults_to_auto(self) -> None:
         rclone = (
             '[[endpoints]]\nname = "cloud"\ntype = "rclone"\nremote = "gd"\n'

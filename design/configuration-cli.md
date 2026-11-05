@@ -5,7 +5,10 @@
 ## Configuration (TOML)
 
 Searched at `~/.config/kp-sync/config.toml` (overridable with `--config` or
-`--profile`). Keys:
+`--profile`). Without that file kp-sync uses built-in defaults, unless
+named profiles (`*.toml`) exist beside it: then it stops and asks for
+`--profile`, since defaults reach no endpoint and the omission is a
+mistake. Keys:
 
 - `hub` (default `$XDG_RUNTIME_DIR/pass.kdbx`), `hub_persistent` (default
   false), `require_encrypted` (default true when `hub_persistent`),

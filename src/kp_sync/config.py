@@ -472,6 +472,19 @@ def load_config(
     else:
         default_source = home_path / ".config" / "kp-sync" / "config.toml"
         source = default_source if default_source.is_file() else None
+        if source is None:
+            # Built-in defaults reach nothing; when named profiles
+            # exist, a missing --profile is almost certainly a mistake.
+            profiles = sorted(
+                path.stem
+                for path in default_source.parent.glob("*.toml")
+                if _PROFILE_RE.fullmatch(path.stem)
+            )
+            if profiles:
+                raise ConfigError(
+                    f"no default configuration ({default_source}); use "
+                    f"--profile with one of: {', '.join(profiles)}"
+                )
 
     try:
         raw = (

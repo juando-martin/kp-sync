@@ -153,10 +153,19 @@ class MultiKeyring:
         }
 
 
+def _isolated_config(test: unittest.TestCase):
+    # Never the real home: it may hold production profiles.
+    temp = tempfile.TemporaryDirectory()
+    test.addCleanup(temp.cleanup)
+    return load_config(
+        environ={"HOME": temp.name, "XDG_RUNTIME_DIR": temp.name}
+    )
+
+
 class CopyPasswordSlotTest(unittest.TestCase):
     def setUp(self) -> None:
         self.keyring = MultiKeyring()
-        self.config = load_config()
+        self.config = _isolated_config(self)
         self.provider = CredentialProvider(self.config, self.keyring)
         self.test_profile = CredentialProvider(
             replace(self.config, profile="kp-test"), self.keyring
@@ -216,7 +225,7 @@ class CopyPasswordSlotTest(unittest.TestCase):
 
 class CredentialProviderTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.config = load_config()
+        self.config = _isolated_config(self)
         self.keyring = FakeKeyring()
         self.provider = CredentialProvider(self.config, self.keyring)
 

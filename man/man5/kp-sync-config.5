@@ -9,7 +9,12 @@ kp-sync-config \- TOML configuration for kp-sync
 .BR kp-sync (1)
 reads the default configuration from
 .IR ~/.config/kp-sync/config.toml .
-If that file does not exist, built-in defaults are used. The
+If that file does not exist, built-in defaults are used, unless other
+profiles exist in that directory: then
+.BR kp-sync (1)
+stops and asks for
+.BR \-\-profile .
+The
 .B kp-sync \-\-profile NAME
 option selects
 .IR ~/.config/kp-sync/NAME.toml ,

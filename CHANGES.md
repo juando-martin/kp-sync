@@ -3,6 +3,20 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Changed
+
+- Without `~/.config/kp-sync/config.toml`, kp-sync stops and lists the
+  named profiles when any exist, instead of silently running on built-in
+  defaults that reach nothing. Pass `--profile NAME`.
+
+### Fixed
+
+- `tools/releases.py install` builds in pip's isolated environment when
+  the target environment has no setuptools, instead of failing with
+  `Cannot import 'setuptools.build_meta'`.
+
 ## 0.3.5 (2026-11-05)
 
 ### Fixed

@@ -186,10 +186,15 @@ class InstallTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.home = Path(self.temp.name)
         self.calls = []
+        self.probes = []
         self.exported = []
 
-    def fake_run(self, version="kp-sync 1.2.4"):
+    def fake_run(self, version="kp-sync 1.2.4", setuptools=True):
         def run(argv, **kwargs):
+            if "import setuptools.build_meta" in argv:
+                self.probes.append(argv)
+                status = 0 if setuptools else 1
+                return subprocess.CompletedProcess(argv, status, "", "")
             self.calls.append(argv)
             stdout = version + "\n" if "--version" in argv else ""
             return subprocess.CompletedProcess(argv, 0, stdout, "")
@@ -232,6 +237,8 @@ class InstallTest(unittest.TestCase):
         done = self.install()
         program = str(self.home / "venv/bin/kp-sync")
         self.assertIn("--no-deps", self.calls[0])
+        self.assertIn("--no-build-isolation", self.calls[0])
+        self.assertEqual(len(self.probes), 1)
         self.assertEqual(self.calls[1], [program, "--version"])
         self.assertEqual(
             self.calls[2],
@@ -286,6 +293,11 @@ class InstallTest(unittest.TestCase):
             ],
         )
         self.assertEqual(releases._unit_name(""), "kp-sync.service")
+
+    def test_install_builds_in_isolation_without_setuptools(self):
+        self.install(run=self.fake_run(setuptools=False))
+        self.assertIn("--no-deps", self.calls[0])
+        self.assertNotIn("--no-build-isolation", self.calls[0])
 
     def test_install_without_units_only_explains_activation(self):
         done = self.install()

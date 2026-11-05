@@ -43,6 +43,11 @@ for every setting. A
 is an independent configuration with its own hub, runtime directory,
 daemon and password cache, selected with
 .BR \-\-profile .
+When only named profiles exist (no
+.IR config.toml ),
+commands without
+.B \-\-profile
+stop with an error that lists them.
 .SH GLOBAL OPTIONS
 Global options are written before the command name.
 .TP
