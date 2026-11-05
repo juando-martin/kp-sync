@@ -3,7 +3,7 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
-## Unreleased
+## 0.3.8 (2026-11-06)
 
 ### Changed
 
