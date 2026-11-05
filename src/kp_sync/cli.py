@@ -31,6 +31,7 @@ COMMANDS = (
     ("eject", "Synchronize and unmount a drive"),
     ("down", "Detach a drive and stop when idle"),
     ("drive-sync", "Submit a udevmon drive event to the daemon"),
+    ("drive-setup", "Register a key drive with udevmon and fill it"),
     ("session", "Start a confined remote session"),
     ("service", "Manage the daemon, named SSH sessions and kp-access owners"),
     ("access-op", "Handle a kp-access file operation"),
@@ -241,6 +242,23 @@ def _build_parser() -> argparse.ArgumentParser:
                 "--drive-id", required=True, metavar="SERIAL:FS_UUID"
             )
             command_parser.add_argument("mountpoint", nargs="?")
+        elif name == "drive-setup":
+            command_parser.add_argument(
+                "mountpoint", help="where the key drive is mounted"
+            )
+            command_parser.add_argument(
+                "name", help="udevmon device name, e.g. key-daily"
+            )
+            command_parser.add_argument(
+                "--rclone",
+                action="store_true",
+                help="the drive also carries rclone credentials",
+            )
+            command_parser.add_argument(
+                "--dry-run",
+                action="store_true",
+                help="show what would be done, change nothing",
+            )
         elif name == "sftp-serve":
             command_parser.add_argument(
                 "--diagnostic", action="store_true", help=argparse.SUPPRESS
@@ -436,6 +454,21 @@ def _dispatch(parser: argparse.ArgumentParser, args) -> int:
                 submit=_submit_nested,
             )
         except (OSError, RuntimeError, ValueError) as exc:
+            error(str(exc))
+            return 1
+    if args.command == "drive-setup":
+        from kp_sync.drive_setup import DriveSetupError, setup
+        from kp_sync.drives import DriveError
+
+        try:
+            return setup(
+                load_config(args.config, profile=args.profile),
+                args.mountpoint,
+                args.name,
+                rclone=args.rclone,
+                dry_run=args.dry_run,
+            )
+        except (ConfigError, DriveSetupError, DriveError, OSError) as exc:
             error(str(exc))
             return 1
     daemon_commands = {"run", "up", "attach", "detach", "down", "eject"}

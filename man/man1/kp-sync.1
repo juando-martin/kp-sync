@@ -446,6 +446,26 @@ and no other drive attached, also does what
 .B down
 does.
 .TP
+\fBdrive\-setup\fR [\fB\-\-rclone\fR] [\fB\-\-dry\-run\fR] \fIMOUNTPOINT\fR \fINAME\fR
+Prepare a plugged key drive for this profile (needs udevmon 0.7.0 or
+later): register it as udevmon device
+.I NAME
+(tag
+.BR keepass ,
+and
+.B rclone
+with
+.BR \-\-rclone )
+in kp-sync's drop-in
+.IR ~/.config/udevmon/config.d/50-kp-sync.toml ,
+add this profile's attach/detach (persistent hub) or up/down actions if
+missing, and run the drive's actions now. The normal attach then fills an
+empty drive with the current database and history; a drive that already
+holds a database is synchronized (merged if it differs), never
+overwritten. The command itself writes no database.
+.B \-\-dry\-run
+shows the plan and changes nothing.
+.TP
 \fBdrive\-sync\fR \fBup\fR|\fBdown\fR \fB\-\-mode\fR \fBmain\fR|\fBsecondary\fR \fB\-\-drive\-id\fR \fISERIAL:FS_UUID\fR [\fIMOUNTPOINT\fR]
 Action for
 .BR udevmon :

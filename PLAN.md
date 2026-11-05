@@ -199,7 +199,9 @@ implementation. Each needs its design decisions recorded in the owning
    history files (bases, `state.json`) against their recorded hashes,
    to catch a failing stick before it is the only offline copy. Check
    first which hashes are already recorded. Small.
-7. **Pendrive setup.** A command that prepares a new key drive: copy
+7. **Pendrive setup.** *Implemented 2026-11-06 (unreleased):
+   `kp-sync drive-setup` (`drive_setup.py`, `udevmon.py`); not yet tried
+   on a real new drive.* A command that prepares a new key drive: copy
    the current database (and the history the drive store needs) to it,
    read its serial and filesystem UUID, and add the matching udevmon
    device (tag `keepass`) and, if missing, the attach/detach or
