@@ -208,6 +208,11 @@ implementation. Each needs its design decisions recorded in the owning
    Needs a protocol field and a per-request log level in the daemon;
    relaying the lines to the client's terminal is a further option.
    Medium.
+9. **Back off the idle sync while offline.** While the cloud is
+   unreachable, space out (or skip) the hourly timer's runs instead of
+   failing every hour, and return to the normal interval once it is
+   reached again. Mostly a quieter journal; it should not delay syncs
+   triggered by saves, drives or sessions. Small.
 
 Still open from earlier work (see REQUIRED_INPUT and the acceptance
 table): retiring old session records safely, retiring the old scripts
