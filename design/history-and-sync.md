@@ -245,6 +245,18 @@ observed in this run whose bytes have that SHA-256 (verified on use, never
 trusted by name), and uploaded before that store's state. Only missing
 bases are fetched, so a fresh runtime does not download every base.
 
+Listings show only names and sizes, so a damaged base of the right size
+(a failing pendrive) would not be healed. Once per drive attachment
+(keyed by the drive record's `attached_at`, remembered in the run dir's
+`drive-checks.json`), a sync with that drive's history store therefore
+hashes every `bases/<sha>.kdbx` on it, under the engine lock. A base
+whose SHA-256 differs from its name is renamed, never deleted, into
+`damaged/` beside `bases/` (`NAME.STAMP`), and the user is told (error
+log and notification; repeated damage suggests a failing drive). The
+same run's publication then sees it missing and uploads a verified copy.
+A dry run only reports. A drive whose `state.json` cannot be read is
+already handled as an unavailable history store.
+
 When a retained version's base exists nowhere reachable, publication is
 refused: every retained version is held by a copy or is the merge base of
 two held versions, so silently dropping it could make later merges less

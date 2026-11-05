@@ -52,7 +52,7 @@ from kp_sync.history import (
 )
 from kp_sync.kdbx import KdbxError, inspect_kdbx
 from kp_sync.lock import acquire_lock, file_lock
-from kp_sync.log import debug, debug_enabled
+from kp_sync.log import debug, debug_enabled, error
 from kp_sync.merge import (
     MergeCredentialError,
     MergeError,
@@ -68,7 +68,7 @@ from kp_sync.paths import (
     ensure_run_dir,
 )
 from kp_sync.pending import PendingStore
-from kp_sync.state import HistoryState
+from kp_sync.state import HistoryState, StateError
 from kp_sync.ui.base import UI, UIUnavailable
 from kp_sync.ui.factory import create_ui
 from kp_sync.verify import (
@@ -699,6 +699,7 @@ class SyncEngine:
         ) as temp_name:
             temporary = Path(temp_name)
             self._temporary = temporary
+            self._check_drive_stores(dry_run=dry_run)
             self._baseline = BaselineManager(
                 self.run_directory, self.baseline_stores
             )
@@ -1551,6 +1552,67 @@ class SyncEngine:
                 missing=tuple(sorted(missing)),
                 restarted=restarted,
             )
+
+    def _check_drive_stores(self, *, dry_run: bool) -> None:
+        """Check each attached drive's history once per attachment."""
+        from kp_sync.baseline import DriveStore, check_drive_history
+
+        stores = [
+            store
+            for store in self.baseline_stores
+            if isinstance(store, DriveStore)
+        ]
+        if not stores:
+            return
+        record_path = self.run_directory / "drive-checks.json"
+        try:
+            checked = json.loads(record_path.read_text())
+            if not isinstance(checked, dict):
+                checked = {}
+        except (OSError, ValueError):
+            checked = {}
+        changed = False
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        for store in stores:
+            identity = store.endpoint.identity
+            try:
+                attached = json.loads(
+                    (
+                        self.run_directory / "drives" / f"{identity}.json"
+                    ).read_text()
+                ).get("attached_at")
+            except (OSError, ValueError, AttributeError):
+                attached = None
+            key = attached or "configured"
+            if checked.get(identity) == key:
+                continue
+            try:
+                damaged = check_drive_history(
+                    store, quarantine=not dry_run, stamp=stamp
+                )
+            except (OSError, EndpointUnavailable, StateError) as exc:
+                debug(f"drive history check for {identity} skipped: {exc}")
+                continue
+            if damaged:
+                names = ", ".join(name[:12] for name in damaged)
+                message = (
+                    f"Key drive {store.endpoint.name} ({identity}) has "
+                    f"{len(damaged)} damaged history file(s) ({names})"
+                    + (
+                        "; they were moved to its damaged/ folder and will "
+                        "be replaced from verified copies. If this repeats, "
+                        "the drive may be failing."
+                        if not dry_run
+                        else "; a real sync moves them aside."
+                    )
+                )
+                error(message)
+                self.ui.notify(message)
+            if not dry_run:
+                checked[identity] = key
+                changed = True
+        if changed:
+            atomic_write(record_path, json.dumps(checked, sort_keys=True))
 
     def _observe_all(
         self,
