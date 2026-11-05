@@ -7,6 +7,12 @@ hold the details; design decisions live in the `design/` chapters.
 
 ### Added
 
+- Once per attachment, a key drive's history bases are checked against
+  their SHA-256 names; a damaged one is moved to `damaged/` on the
+  drive (never deleted), replaced from a verified copy in the same run,
+  and reported, so a failing stick is noticed before it is the only
+  offline copy.
+
 - When the pre-launch sync cannot reach the cloud, a warning dialog says
   so and how long it has been since the cloud was last reached (with
   `confirm_without_cloud`, the same text is a question). `status` shows

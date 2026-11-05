@@ -377,6 +377,42 @@ class CloudSyncTest(unittest.TestCase):
         self.assertFalse(engine.config.hub.exists())
         self.assertEqual(self.cloud_db.read_bytes(), self.initial)
 
+    def test_damaged_drive_base_is_moved_aside_and_healed(self):
+        engine = self.engine("left", drive=True)
+        engine.sync()
+        bases = self.mount / "kp-sync" / "bases"
+        base = bases / f"{self.initial_sha}.kdbx"
+        self.assertTrue(base.is_file())
+        size = base.stat().st_size
+        base.write_bytes(b"\0" * size)  # same size: listings miss it
+        reports = []
+        with patch("kp_sync.engine.error", side_effect=reports.append):
+            engine.sync()
+        self.assertEqual(reports, [], "checked once per attachment")
+        (engine.run_directory / "drive-checks.json").unlink()
+        with patch("kp_sync.engine.error", side_effect=reports.append):
+            engine.sync()
+        self.assertEqual(len(reports), 1)
+        self.assertIn("1 damaged history file(s)", reports[0])
+        moved = list((self.mount / "kp-sync" / "damaged").iterdir())
+        self.assertEqual(len(moved), 1)
+        self.assertTrue(moved[0].name.startswith(base.name + "."))
+        self.assertEqual(
+            hashlib.sha256(base.read_bytes()).hexdigest(), self.initial_sha
+        )
+
+    def test_dry_run_reports_a_damaged_drive_base_without_moving_it(self):
+        engine = self.engine("left", drive=True)
+        engine.sync()
+        base = self.mount / "kp-sync" / "bases" / f"{self.initial_sha}.kdbx"
+        base.write_bytes(b"\0" * base.stat().st_size)
+        (engine.run_directory / "drive-checks.json").unlink()
+        reports = []
+        with patch("kp_sync.engine.error", side_effect=reports.append):
+            engine.sync(dry_run=True)
+        self.assertIn("a real sync moves them aside", reports[0])
+        self.assertFalse((self.mount / "kp-sync" / "damaged").exists())
+
     def test_each_run_records_when_the_cloud_was_reached(self):
         from kp_sync import cloud_contact
 

@@ -193,7 +193,9 @@ implementation. Each needs its design decisions recorded in the owning
 5. **`kp-sync completion install`.** Write the argcomplete registration
    and the alias completion (`examples/bash-completion/kps`) into
    `~/.local/share/bash-completion/completions/`. Small.
-6. **Pendrive integrity check.** On attach, verify the drive's stored
+6. **Pendrive integrity check.** *Implemented 2026-11-06 (unreleased):
+   `baseline.check_drive_history`, run once per attachment by the
+   engine; design in "Missing bases and repair".* On attach, verify the drive's stored
    history files (bases, `state.json`) against their recorded hashes,
    to catch a failing stick before it is the only offline copy. Check
    first which hashes are already recorded. Small.

@@ -741,6 +741,48 @@ def _delete_bases(store: Store, names: list[str], temporary) -> None:
         batch(names, temporary)
 
 
+def check_drive_history(
+    store: "DriveStore", *, quarantine: bool, stamp: str
+) -> list[str]:
+    """Find damaged bases on a drive store; optionally move them aside.
+
+    A base is damaged when its SHA-256 differs from the name it is
+    stored under. Publication heals only missing or wrongly sized bases,
+    so a same-size damaged base would otherwise stay in place. With
+    ``quarantine`` each damaged base is renamed (never deleted) into
+    ``damaged/`` beside ``bases/`` as ``NAME.STAMP``; the next
+    publication then replaces it from a verified copy. Returns the
+    damaged base names.
+    """
+    directory = store._path("bases")
+    if not directory.is_dir():
+        return []
+    damaged = []
+    for path in sorted(directory.iterdir()):
+        match = re.fullmatch(r"([0-9a-f]{64})\.kdbx", path.name)
+        if match is None or path.is_symlink() or not path.is_file():
+            continue
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+        if digest.hexdigest() != match[1]:
+            damaged.append(path.name)
+    if damaged and quarantine:
+        store.endpoint._check_mount()
+        target = store._path("damaged")
+        target.mkdir(exist_ok=True)
+        for name in damaged:
+            os.rename(directory / name, target / f"{name}.{stamp}")
+        for folder in (directory, target):
+            descriptor = os.open(folder, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    return damaged
+
+
 def stores_from_endpoints(
     endpoints, names: list[str], directory: str
 ) -> tuple[Store, ...]:
