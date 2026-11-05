@@ -201,8 +201,9 @@ implementation. Each needs its design decisions recorded in the owning
    device (tag `keepass`) and, if missing, the attach/detach or
    up/down actions for this profile. Never overwrite an existing
    database on the drive; a drive that already holds one is attached
-   and synchronized normally instead. Medium. Simplest with udevmon
-   drop-in files and event triggers: see `UDEVMON_REQUESTS.md`.
+   and synchronized normally instead. Medium. udevmon 0.7.0 provides
+   what it needs: `devices add --from-mountpoint ... --file 50-kp-sync`,
+   the kp-sync drop-in and `udevmon trigger`.
 8. **Debugging a running daemon for one request.** A client's `--debug`
    asks the daemon to log `DEBUG:` lines for that request only, in the
    journal (today it prints a note that the daemon is not affected).

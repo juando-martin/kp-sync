@@ -54,15 +54,15 @@ class ExampleTest(unittest.TestCase):
                 self.assertEqual(len({mode for _, mode, _ in commands}), 1)
                 self.assertIn("mounted", commands[0][2])
                 self.assertEqual(commands[1][2], ["unmounted"])
-                runs = [action["run"][:2] for action in actions]
-                if ["rclone-config", "up"] in runs:
-                    # Credentials before the pre-sync, removal after the
-                    # draining post-sync.
-                    kp = [i for i, r in enumerate(runs) if r[0] == "kp-sync"]
-                    self.assertLess(runs.index(["rclone-config", "up"]), kp[0])
-                    self.assertGreater(
-                        runs.index(["rclone-config", "down"]), kp[-1]
-                    )
+                document = tomllib.loads(path.read_text())
+                # A udevmon (0.7.0+) drop-in: no [daemon] table, and
+                # kp-sync's actions keep the default order 50, between
+                # the rclone provider's up (10) and down (90).
+                self.assertNotIn("daemon", document)
+                for action in actions:
+                    if action["run"][0] == "kp-sync":
+                        self.assertEqual(action.get("order", 50), 50)
+                        self.assertIs(action.get("notify_on_failure"), True)
 
 
 if __name__ == "__main__":

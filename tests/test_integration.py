@@ -698,6 +698,29 @@ class IntegrationProfileCheckTest(unittest.TestCase):
         (self.profiles / "config.toml").write_text("")
         self.assertNotIn("without --profile", self.check().message)
 
+    def test_udevmon_drop_ins_are_checked_too(self):
+        self.udevmon(["kp-sync", "--profile", "alpha", "drive-sync", "up"])
+        drop_ins = self.home / ".config/udevmon/config.d"
+        drop_ins.mkdir()
+        (drop_ins / "50-kp-sync.toml").write_text(
+            '[[actions]]\nname = "attach"\n'
+            'run = ["kp-sync", "--profile", "old", "drive-sync", "up"]\n'
+        )
+        (drop_ins / ".hidden.toml").write_text("not = [valid")
+        (drop_ins / "notes.txt").write_text("not = [valid")
+        check = self.check()
+        self.assertFalse(check.ok)
+        self.assertIn(
+            "'attach' (50-kp-sync.toml) names profile 'old'", check.message
+        )
+        (drop_ins / "50-kp-sync.toml").write_text(
+            '[[actions]]\nname = "attach"\n'
+            'run = ["kp-sync", "--profile", "alpha", "drive-sync", "up"]\n'
+        )
+        check = self.check()
+        self.assertTrue(check.ok, check.message)
+        self.assertIn("2 kp-sync call(s)", check.message)
+
     def test_kp_access_db_path_must_be_this_profiles_staged_copy(self):
         staged = self.run_directory / "staging/pass.kdbx"
         self.kp_access("kp-sync --profile alpha access-op", staged)

@@ -1,15 +1,24 @@
-# udevmon actions for a second machine with a named profile and a
-# persistent hub (../second-laptop.toml). Merge into
-# ~/.config/udevmon/config.toml next to the existing actions.
+# udevmon drop-in for a laptop with a persistent hub
+# (../second-laptop.toml): copy to
+# ~/.config/udevmon/config.d/50-kp-sync.toml (udevmon 0.7.0 or later) and
+# replace HOST with the profile (named after the host). kp-sync owns this
+# file; your config.toml is left alone. Check with `udevmon check` and
+# `udevmon explain mounted`; `udevmon trigger key-daily` then attaches a
+# drive that is already plugged in.
 #
 # secondary mode: plugging only attaches the drive as one more copy
 # (`kp-sync attach`) and unplugging detaches it. KeePassXC is neither
 # started nor stopped and the hub, on an encrypted disk, stays. Never use
-# --mode main here: that would remove a RAM hub on the last unplug.
+# --mode main here: that would quit KeePassXC on every unplug.
+#
+# A drop-in cannot hold [daemon]: put the folder where kp-sync is found
+# in config.toml:
+#   [daemon]
+#   script_dir = ["~/.venvs/tools/bin"]
 
-[daemon]
-script_dir = ["~/.local/udev/scripts", "~/.venvs/tools/bin"]
-
+# One block per key drive, added from the plugged drive with
+#   udevmon devices add key-daily --from-mountpoint /media/$USER/KEYDRIVE \
+#       --tag keepass --file 50-kp-sync
 [devices.key-daily]
 match = { fs_uuid = "AB12-CD34", drive_serial = "1111222233334444" }
 tags = ["keepass"]
@@ -21,6 +30,7 @@ on = ["startup", "mounted"]
 run = ["kp-sync", "--profile", "HOST", "drive-sync", "up", "--mode", "secondary", "--drive-id", "{drive_serial}:{fs_uuid}", "{mountpoint}"]
 lock = "keydisk"
 timeout = 120
+notify_on_failure = true
 
 [[actions]]
 name = "keepass-detach"
@@ -29,3 +39,4 @@ on = ["unmounted"]
 run = ["kp-sync", "--profile", "HOST", "drive-sync", "down", "--mode", "secondary", "--drive-id", "{drive_serial}:{fs_uuid}"]
 lock = "keydisk"
 timeout = 120
+notify_on_failure = true

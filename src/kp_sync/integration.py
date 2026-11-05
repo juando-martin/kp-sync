@@ -243,8 +243,17 @@ def integration_check(
     profiles = home / ".config" / "kp-sync"
     calls: list[tuple[str, list[str]]] = []
     problems: list[str] = []
-    udevmon = config_home / "udevmon" / "config.toml"
-    if udevmon.is_file():
+    # udevmon reads config.toml, then its config.d/*.toml drop-ins
+    # (0.7.0+; hidden files and other suffixes are skipped).
+    udevmon_dir = config_home / "udevmon"
+    udevmon_files = [udevmon_dir / "config.toml"] + sorted(
+        path
+        for path in (udevmon_dir / "config.d").glob("*.toml")
+        if not path.name.startswith(".")
+    )
+    for udevmon in udevmon_files:
+        if not udevmon.is_file():
+            continue
         try:
             actions = tomllib.loads(udevmon.read_text(encoding="utf-8")).get(
                 "actions", []
@@ -252,10 +261,13 @@ def integration_check(
         except (OSError, tomllib.TOMLDecodeError) as exc:
             problems.append(f"cannot read {udevmon}: {exc}")
             actions = []
+        where = "" if udevmon.name == "config.toml" else f" ({udevmon.name})"
         for action in actions:
             run = action.get("run") if isinstance(action, dict) else None
             if isinstance(run, list) and all(isinstance(w, str) for w in run):
-                calls.append((f"udevmon action {action.get('name')!r}", run))
+                calls.append(
+                    (f"udevmon action {action.get('name')!r}{where}", run)
+                )
     access = config_home / "kp-access" / "config.ini"
     owner: dict[str, str] = {}
     if access.is_file():

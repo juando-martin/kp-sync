@@ -26,18 +26,20 @@ Check a profile without contacting anything:
 
 ## udevmon actions
 
-Merge these into `~/.config/udevmon/config.toml` (keep unrelated devices
-and actions), then run `udevmon check`. udevmon refuses group- or
-world-writable configuration files.
+These are udevmon drop-ins (udevmon 0.7.0 or later): copy one to
+`~/.config/udevmon/config.d/50-kp-sync.toml`, replace `HOST` and the drive
+identities, then run `udevmon check`. kp-sync's file never touches your
+`config.toml`; put `[daemon] script_dir` there (a drop-in cannot hold it).
+udevmon refuses group- or world-writable configuration files.
 
 | File | Shows |
 |---|---|
-| [udevmon/main-laptop.toml](udevmon/main-laptop.toml) | `drive-sync --mode main` (drive starts and ends the session) with the `rclone-config` credentials provider, in the required order |
+| [udevmon/main-laptop.toml](udevmon/main-laptop.toml) | `drive-sync --mode main` (drive starts and ends the session); drives tagged `rclone` also need udevmon's `rclone-config` drop-in, whose `order` (10/90) runs it around kp-sync's actions |
 | [udevmon/second-laptop.toml](udevmon/second-laptop.toml) | `drive-sync --mode secondary` for a profile named after the host (`HOST`): drives are only attached and detached |
 | [bash-completion/kps](bash-completion/kps) | Bash completion for an alias such as `kps` (`kp-sync --profile HOST`); install next to the generated `kp-sync` completion (see the README) |
 
-The `rclone-config` helper and its own example live in udevmon's
-`contrib/rclone-config/`.
+The `rclone-config` helper and its drop-in (`udevmon.toml.example`, to
+`config.d/rclone-config.toml`) live in udevmon's `contrib/rclone-config/`.
 
 ## Other files
 
@@ -56,10 +58,12 @@ on that machine, and nothing here moves or overwrites a database.
    [second-laptop.toml](second-laptop.toml) or
    [main-laptop.toml](main-laptop.toml); check it with
    `kp-sync --profile HOST status` (cached, contacts nothing).
-3. Read each key drive's real serial and filesystem UUID (`lsblk -o
-   NAME,SERIAL,UUID`) and merge the matching udevmon example into
-   `~/.config/udevmon/config.toml` with `--profile HOST`; check with
-   `udevmon check` and `udevmon explain mounted`.
+3. With udevmon 0.7.0 or later: copy the matching udevmon example to
+   `~/.config/udevmon/config.d/50-kp-sync.toml` with `--profile HOST`,
+   keeping only its actions, and add each key drive from the plugged
+   drive (`udevmon devices add NAME --from-mountpoint MOUNT --tag keepass
+   --file 50-kp-sync`); check with `udevmon check` and
+   `udevmon explain mounted`.
 4. Close the application and disable any older startup, then
    `kp-sync --profile HOST service install daemon --desktop` and
    `service enable daemon --now`. Install refuses group-writable
@@ -68,5 +72,7 @@ on that machine, and nothing here moves or overwrites a database.
 5. `kp-sync --profile HOST sync --dry-run --no-daemon --ui none`, then a
    real sync; an older hub is merged or, when dominated, backed up and
    replaced, never silently overwritten.
-6. Start udevmon (`udevmon service install --now`), add
-   `alias kps='kp-sync --profile HOST'` and the Bash completion (README).
+6. Start udevmon (`udevmon service install --now`; if it was running,
+   `udevmon reload`, then `udevmon trigger NAME` for a drive that is
+   already plugged in), add `alias kps='kp-sync --profile HOST'` and the
+   Bash completion (README).

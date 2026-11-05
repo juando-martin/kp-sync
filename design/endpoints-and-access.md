@@ -56,6 +56,12 @@
     including when a drive was reinserted during its slow cloud post-sync.
     Failed submission retains the marker safely; retry up to complete
     registration.
+  - kp-sync's actions live in its own udevmon drop-in,
+    `~/.config/udevmon/config.d/50-kp-sync.toml` (udevmon 0.7.0+), with
+    the default `order` (50) and `notify_on_failure = true`; the rclone
+    provider's drop-in wraps them with `order` 10 (`up`) and 90 (`down`).
+    Their order depends only on `order`, not on file names. A drive set
+    up while plugged in is attached with `udevmon trigger NAME`.
   - Actions are clients only: they send a request to the daemon and return
     at once (`--no-wait`), so the action's `timeout = 120` and udevmon
     restarts no longer matter. The daemon and the applications run in
