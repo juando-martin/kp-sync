@@ -92,9 +92,18 @@ command is a short client that sends it a request over a Unix socket.
      it retains the normal unknown-copy review safeguards. A wrapper
      waits for pre-sync up to
      `prestart_timeout` (default 20 s) when a hub is available; if the cloud is slow or
-     unreachable, the application starts on the hub as it is and the user
-     is notified (or asked, with `confirm_without_cloud`, when the hub had
-     to be filled from a copy that may be outdated). If the hub is absent
+     unreachable, the application starts on the hub as it is. When the
+     pre-sync finished without reaching the cloud, a warning dialog
+     (zenity/kdialog; a notification with a custom command or without a
+     display) says so and how long it has been since the cloud was last
+     reached, shown beside the application without delaying it; with
+     `confirm_without_cloud` the same text is a question asked before
+     launching (no launch on "no"). A pre-sync still running at the
+     timeout gives no warning; its failure is notified as usual. While
+     the cloud stays unreachable, each daemon sync (including the hourly
+     idle sync) notifies, at most once per `cloud_warning_hours`, when
+     the hub holds changes not yet synchronized and the cloud has not
+     been reached for that long. If the hub is absent
      at that timeout, the launch request waits for the same pre-sync to
      finish, then launches only if the hub exists. It does not abandon the
      launch merely because downloading the first copy takes longer than

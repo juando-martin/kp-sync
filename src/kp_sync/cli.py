@@ -882,6 +882,9 @@ def _print_status(result, *, long=False, versions=()):
         f"{pending_decisions} "
         "pending decisions"
     )
+    for identity, contact in sorted(result.get("cloud", {}).items()):
+        if isinstance(contact, dict) and contact.get("description"):
+            print(f"Cloud {identity}: {contact['description']}.")
     if summary.get("hub_unsynced"):
         print(
             "Hub saved since the last sync: its changes are not "

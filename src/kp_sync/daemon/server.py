@@ -618,6 +618,10 @@ class Controller:
                             + ", ".join(missing)
                         )
                     self.notified_missing = missing
+                    try:
+                        self._warn_stale_cloud(outcome)
+                    except Exception as exc:
+                        error(f"cloud staleness check failed: {exc}")
                 return outcome.to_dict()
             finally:
                 with self.guard:
@@ -720,6 +724,84 @@ class Controller:
             )["lifecycle"] = "live"
         result["rescue_needed"] = self.rescue_needed
         return result
+
+    def _desktop_ui(self):
+        return create_ui(
+            (
+                "gui"
+                if os.environ.get("DISPLAY")
+                or os.environ.get("WAYLAND_DISPLAY")
+                else "none"
+            ),
+            timeout=self.config.ui["dialog_timeout"],
+            gui=self.config.ui["gui"],
+        )
+
+    def _warn_quietly(self, message):
+        try:
+            self._desktop_ui().warn(message)
+        except Exception as exc:  # a dialog must never break a launch
+            error(f"cloud warning dialog failed: {exc}")
+            self._notify(message)
+
+    def _offline_clouds(self, outcome):
+        """Unreachable clouds in an outcome, with contact phrases."""
+        from kp_sync import cloud_contact
+        from kp_sync.state import HistoryState
+
+        missing = set(outcome.get("missing") or ())
+        identities = [
+            identity
+            for identity in cloud_contact.cloud_identities(self.config)
+            if identity in missing
+        ]
+        if not identities:
+            return []
+        try:
+            copies = HistoryState.load(self.directory / "state.json").copies
+        except Exception:
+            copies = {}
+        contacts = cloud_contact.last_contact(
+            self.directory, identities, copies
+        )
+        return [
+            (identity, cloud_contact.describe(contacts[identity]))
+            for identity in identities
+        ]
+
+    def _warn_stale_cloud(self, outcome):
+        """Notify when hub changes waited too long for the cloud."""
+        from kp_sync import cloud_contact
+
+        hours = self.config.daemon["cloud_warning_hours"]
+        offline = self._offline_clouds(outcome.to_dict())
+        if not hours or not offline:
+            return
+        limit = hours * 3600
+        status = SyncEngine(
+            self.config, (), run_directory=self.directory, ui=NoneUI()
+        ).status()
+        if not status.summary.get("hub_unsynced"):
+            return
+        waited = [
+            cloud_contact.seconds_since(
+                contact.get("reached_at") or contact.get("synced_at")
+            )
+            for contact in status.cloud.values()
+        ]
+        if not waited or any(
+            seconds is not None and seconds < limit for seconds in waited
+        ):
+            return
+        if not cloud_contact.warning_due(self.directory, limit):
+            return
+        self._notify(
+            "KeePass changes on this machine have not reached the cloud ("
+            + "; ".join(f"{identity}: {text}" for identity, text in offline)
+            + "). Connect to the network, or plug a key drive to keep a "
+            "copy."
+        )
+        cloud_contact.record_warning(self.directory)
 
     def _notify(self, message):
         info(message)
@@ -1217,24 +1299,32 @@ class Controller:
                 "starting application without all endpoints; hub may be "
                 "outdated"
             )
-            if self.config.launch["confirm_without_cloud"]:
-                backend = create_ui(
-                    (
-                        "gui"
-                        if os.environ.get("DISPLAY")
-                        or os.environ.get("WAYLAND_DISPLAY")
-                        else "none"
-                    ),
-                    timeout=self.config.ui["dialog_timeout"],
-                    gui=self.config.ui["gui"],
+        offline = self._offline_clouds(outcome)
+        if offline:
+            message = (
+                "The cloud cannot be reached ("
+                + "; ".join(
+                    f"{identity}: {text}" for identity, text in offline
                 )
+                + "). KeePassXC opens this machine's copy, which may be "
+                "missing changes made elsewhere; your changes stay here "
+                "until the cloud is reached again."
+            )
+            if self.config.launch["confirm_without_cloud"]:
                 if (
-                    backend.confirm(
-                        "Cloud unavailable; launch the existing database?"
+                    self._desktop_ui().confirm(
+                        message + " Launch the existing database?"
                     )
                     is False
                 ):
                     return {**outcome, "action": "launch cancelled"}
+            else:
+                # Shown beside the application, never delaying it.
+                threading.Thread(
+                    target=self._warn_quietly,
+                    args=(message,),
+                    daemon=True,
+                ).start()
         with self.app_gate:
             self.apps.start(
                 name,

@@ -163,7 +163,9 @@ Collected with the owner on 2026-11-05; not yet approved for
 implementation. Each needs its design decisions recorded in the owning
 `design/` chapter before work starts.
 
-1. **Cloud staleness warnings.** `status` reports when the cloud was
+1. **Cloud staleness warnings.** *Implemented 2026-11-06 (unreleased):
+   `cloud_contact.py`, the launch dialog in `daemon/server.py`,
+   `[daemon] cloud_warning_hours`; design in Lifecycle.* `status` reports when the cloud was
    last reached ("cloud last reached 3 days ago"), and a desktop
    notification fires when hub edits have waited for the cloud longer
    than a threshold (about a day). In addition, *always* warn at the

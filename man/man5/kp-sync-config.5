@@ -600,6 +600,13 @@ Seconds between idle synchronizations.
 At shutdown, when the runtime hub holds content that exists on no other
 copy, seconds to wait for the user to insert a writable drive that will
 receive a rescue file.
+.TP
+.BR cloud_warning_hours " (integer, default 24)"
+Show a desktop notification when the hub has changes that have not been
+synchronized and the cloud has not been reached for this many hours. It
+is repeated at most once per that period;
+.B 0
+disables it.
 .PP
 Changes to
 .B hub_path_unit
@@ -636,10 +643,12 @@ or the name of an
 table.
 .TP
 .BR confirm_without_cloud " (boolean, default false)"
-When the pre-launch synchronization could not reach every endpoint, ask
-before starting the application on a hub that may be outdated. With
+When the pre-launch synchronization could not reach the cloud, ask before
+starting the application on a hub that may be outdated; the question says
+how long it has been since the cloud was last reached. With
 .B false
-the application starts and a notification is shown.
+the application starts and a warning dialog with the same information is
+shown beside it (a notification when no dialog program is available).
 .TP
 .BR quit_on_last_drive " (boolean, default true)"
 When the last attached drive is removed

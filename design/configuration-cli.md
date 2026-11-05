@@ -120,10 +120,15 @@ mistake. Keys:
   `prestart_timeout` (default 20 s),
   `access_lease_ttl` (default 1 h), `hub_path_unit` (default true),
   `idle_sync` (default true for a persistent hub, false otherwise),
-  `idle_sync_interval` (default 1 h), `rescue_wait` (default 60 s).
+  `idle_sync_interval` (default 1 h), `rescue_wait` (default 60 s),
+  `cloud_warning_hours` (default 24; 0 disables): notify when the hub has
+  changes not yet synchronized and the cloud has not been reached for
+  that long, at most once per that period (see Lifecycle).
 - `[sync]`: `lock_timeout` (default 60 s, for `--no-daemon` runs),
   `max_restarts` (default 3).
-- `[launch]`: `default_app` (`keepassxc`), `confirm_without_cloud`,
+- `[launch]`: `default_app` (`keepassxc`), `confirm_without_cloud`
+  (default false: when the pre-sync cannot reach the cloud, a warning
+  dialog appears beside the application; true: ask before launching),
   `quit_on_last_drive` (default true on the main laptop).
 - `[apps.NAME]`: `command` (argument list), `process` (process names to
   track), `reloads` (reloads the file by itself when changed on disk),
@@ -170,7 +175,7 @@ source = "runtime"
 | `kp-sync history` | list the versions kept in the history (date, host, parents, entry count when the password is cached) and the backups of this boot |
 | `kp-sync forget` | revoke the profile's cached passwords (main and per-copy) |
 | `kp-sync keepassxc-disconnect` | remove this host/profile's local browser pairing without contacting KeePassXC; remote revocation is performed in KeePassXC |
-| `kp-sync status [--json]` | cached endpoints/states, persistent copy history with how far behind it is, separately identified live/unfinished/historical-unknown sessions, leases and pending decisions; retired sessions are omitted; read directly from the run dir when the daemon is not running. The only local check: when this machine's hub no longer matches the version recorded for it, it is shown as "saved since the last sync" (unsynchronized changes, or a plain re-save), so offline edits are visible without contacting anything |
+| `kp-sync status [--json]` | cached endpoints/states, persistent copy history with how far behind it is, separately identified live/unfinished/historical-unknown sessions, leases and pending decisions; retired sessions are omitted; read directly from the run dir when the daemon is not running. The only local check: when this machine's hub no longer matches the version recorded for it, it is shown as "saved since the last sync" (unsynchronized changes, or a plain re-save), so offline edits are visible without contacting anything. It also says when each cloud was last reached from this machine (`cloud-contact.json` in the run dir, written after every run that observed it; lost at reboot, when the cloud copy's last synchronization from shared history is shown instead) |
 | `kp-sync retire-session [--identity ID] [--confirm ID]` | preview legacy session identities read-only, or retire one identity after exact confirmation and runtime revalidation; shared publication outcomes are reported separately |
 | `kp-sync service install daemon [--desktop]` | write or refresh selected-profile units and required shared templates; reload systemd without enabling or starting; desktop entries opt-in |
 | `kp-sync doctor [--self-test]` | check the installation and report what to fix: units installed and enabled, socket reachable and protocol version, menu entry override still in effect and still calling `kp-sync run` (a KeePassXC update may change the system entry), KeePassXC's reload option, key file readable, rclone remote and probe working, hub on an encrypted disk when `require_encrypted`, a key written by a client readable by the daemon (keyring possession), swap encrypted or absent (`$XDG_RUNTIME_DIR` is tmpfs, which can be swapped out), that every `kp-sync` call in udevmon's actions and kp-access's `[owner] file-op-cmd` selects an existing profile (no `--profile` only with `config.toml`) and, for this profile, that kp-access's `db-path` is its staged copy, and for sessions `bwrap` (and unprivileged user namespaces), `sftp-server`, `~/.ssh/authorized_keys` editable (regular file, owned, not group/other-writable), no stale `kp-sync-session-*` lines, and the system sshd reachable on localhost. Explicit `--self-test` authorizes a five-minute restricted key and a confined localhost SFTP put/get round trip; removes only its own key and runtime artifacts afterwards, never uses the database/key file, and catches shell startup output that breaks SFTP |

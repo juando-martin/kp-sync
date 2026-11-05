@@ -377,6 +377,32 @@ class CloudSyncTest(unittest.TestCase):
         self.assertFalse(engine.config.hub.exists())
         self.assertEqual(self.cloud_db.read_bytes(), self.initial)
 
+    def test_each_run_records_when_the_cloud_was_reached(self):
+        from kp_sync import cloud_contact
+
+        engine = self.engine("laptop")
+        engine.sync()
+        reached = cloud_contact.load(engine.run_directory)
+        self.assertIn("cloud:fake", reached)
+
+        def unreachable(argv, **kwargs):
+            raise subprocess.CalledProcessError(1, argv)
+
+        # A new engine: the previous run's listing is not reused.
+        engine = self.engine("laptop")
+        cloud = next(
+            endpoint
+            for endpoint in engine.endpoints
+            if isinstance(endpoint, RcloneEndpoint)
+        )
+        cloud._runner = unreachable
+        before = reached["cloud:fake"]
+        result = engine.sync()
+        self.assertIn("cloud:fake", result.missing)
+        self.assertEqual(
+            cloud_contact.load(engine.run_directory)["cloud:fake"], before
+        )
+
     def test_known_cloud_probe_uses_cached_base_and_status_never_calls_rclone(
         self,
     ):
