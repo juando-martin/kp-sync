@@ -5,6 +5,14 @@ hold the details; design decisions live in the `design/` chapters.
 
 ## Unreleased
 
+### Changed
+
+- The udevmon examples are now drop-ins for udevmon 0.7.0 or later
+  (`~/.config/udevmon/config.d/50-kp-sync.toml`), with
+  `notify_on_failure`; the rclone provider's own drop-in orders its
+  actions around kp-sync's with `order` 10/90. `doctor`'s integration
+  check reads udevmon's drop-ins too.
+
 ### Added
 
 - `tools/run_tests.py` runs the test suite in parallel, one process per

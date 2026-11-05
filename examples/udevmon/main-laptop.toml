@@ -1,25 +1,31 @@
-# udevmon actions for the main laptop (default kp-sync profile).
-# Merge into ~/.config/udevmon/config.toml; never replace unrelated
-# devices or actions. Check with `udevmon check` and
-# `udevmon explain mounted` before restarting udevmon.
+# udevmon drop-in for the main laptop (the laptop whose hub is in RAM):
+# copy to ~/.config/udevmon/config.d/50-kp-sync.toml (udevmon 0.7.0 or
+# later). kp-sync owns this file; your config.toml is left alone. Check
+# with `udevmon check` and `udevmon explain mounted`; then
+# `udevmon trigger key-daily` runs the actions for a drive that is
+# already plugged in (a reload alone does not).
 #
 # main mode: plugging a key drive runs `kp-sync up` (attach, pre-sync,
 # start KeePassXC); unplugging runs `kp-sync down` (quit KeePassXC,
 # post-sync, remove the RAM hub after the last drive). Both are submitted
 # to the daemon with --no-wait, so udevmon is never blocked by a sync.
+# Replace HOST with the profile (named after the host).
 #
-# Order matters: rclone-config up runs before kp-sync up (credentials
-# ready for the pre-sync); kp-sync down runs before rclone-config down
-# (the draining post-sync still finds them). Actions run in file order.
+# Drives tagged "rclone" also carry the cloud credentials: install
+# udevmon's provider drop-in (contrib/rclone-config/udevmon.toml.example
+# as config.d/rclone-config.toml). Its `order` (10 for up, 90 for down)
+# publishes them before these actions (default order 50) and removes
+# them after the final sync, whatever the file names.
+#
+# A drop-in cannot hold [daemon]: put the folder where bare command names
+# (kp-sync, rclone-config) are found in config.toml:
+#   [daemon]
+#   script_dir = ["~/.venvs/tools/bin"]
 
-[daemon]
-# Where bare command names (kp-sync, rclone-config) are found.
-script_dir = ["~/.local/udev/scripts", "~/.venvs/tools/bin"]
-
-# One block per physical key drive. Get the values from
-# `udevmon present --all-props` (drive_serial, fs_uuid) or
-# `lsblk -o SERIAL,UUID` (the serial is on the disk, the UUID on the
-# partition).
+# One block per physical key drive. Add them from the plugged drive:
+#   udevmon devices add key-daily --from-mountpoint /media/$USER/KEYDRIVE \
+#       --tag keepass --tag rclone --file 50-kp-sync
+# or read the values with `udevmon present --json` (drive_serial, fs_uuid).
 [devices.key-daily]
 description = "Daily KeePass key drive"
 match = { fs_uuid = "AB12-CD34", drive_serial = "1111222233334444" }
@@ -32,23 +38,18 @@ match = { fs_uuid = "AB12-CD34", drive_serial = "5555666677778888" }
 tags = ["keepass"]
 
 [[actions]]
-name = "rclone-config-up"
-tag = "rclone"
-on = ["startup", "mounted"]
-run = ["rclone-config", "up", "{mountpoint}", "{drive_serial}:{fs_uuid}"]
-lock = "rclone-config"
-timeout = 30
-
-[[actions]]
 name = "keepass-up"
 tag = "keepass"
 on = ["startup", "mounted"]
 # kp-sync checks that {drive_serial}:{fs_uuid} really is the filesystem
 # mounted at {mountpoint} before registering it.
-run = ["kp-sync", "drive-sync", "up", "--mode", "main", "--drive-id", "{drive_serial}:{fs_uuid}", "{mountpoint}"]
+run = ["kp-sync", "--profile", "HOST", "drive-sync", "up", "--mode", "main", "--drive-id", "{drive_serial}:{fs_uuid}", "{mountpoint}"]
 # The same lock for up and down keeps a quick re-plug ordered.
 lock = "keydisk"
 timeout = 120
+# Failures before kp-sync's daemon (an identity mismatch, a missing
+# profile) would otherwise only reach the journal.
+notify_on_failure = true
 
 [[actions]]
 name = "keepass-down"
@@ -56,14 +57,7 @@ tag = "keepass"
 # unmounted also fires when the stick is pulled without ejecting; the
 # drive is already gone, so kp-sync never writes to it here.
 on = ["unmounted"]
-run = ["kp-sync", "drive-sync", "down", "--mode", "main", "--drive-id", "{drive_serial}:{fs_uuid}"]
+run = ["kp-sync", "--profile", "HOST", "drive-sync", "down", "--mode", "main", "--drive-id", "{drive_serial}:{fs_uuid}"]
 lock = "keydisk"
 timeout = 120
-
-[[actions]]
-name = "rclone-config-down"
-tag = "rclone"
-on = ["unmounted", "shutdown"]
-run = ["rclone-config", "down", "{mountpoint}", "{drive_serial}:{fs_uuid}"]
-lock = "rclone-config"
-timeout = 30
+notify_on_failure = true

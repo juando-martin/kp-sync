@@ -35,7 +35,8 @@ Status: design only. Implementation is a later phase.
   (`hub_persistent`), and sshfs sessions add a restricted, expiring
   public-key line to `~/.ssh/authorized_keys` (see "Remote hosts").
 - Replace `keepassdb_ops.sh` and `kp-ssh-access.sh` with feature parity (see
-  "Feature parity"); reuse `kp-access`, `keyctl` and `udevmon` unchanged;
+  "Feature parity"); reuse `kp-access` and `keyctl` unchanged and `udevmon` (0.7.0+, which
+  added drop-ins, action `order` and `trigger` for kp-sync);
   replace the 2-way `kdbx-merge-review` logic with a 3-way merge engine.
 
 ## Existing pieces
@@ -53,7 +54,7 @@ Status: design only. Implementation is a later phase.
 
 | Component | Decision |
 |---|---|
-| `keyctl`, `udevmon` | unchanged, used as dependencies/integrations |
+| `keyctl`, `udevmon` | used as dependencies/integrations; kp-sync needs udevmon 0.7.0+ for its drop-in (`config.d/50-kp-sync.toml`) |
 | daemon | `kp-sync daemon` as a systemd user service with socket activation and a path unit on the hub; `kp-sync service install daemon --desktop` writes units and desktop entries, then `service enable daemon --now` enables/starts triggers |
 | merge | 3-way engine and review model in `kp_sync/merge.py` (pykeepass), reusing field diff, masking and conflict prompts of `kdbx-merge-review`; review is presented through `kp_sync/ui/`, in a small tkinter window or the terminal |
 | `kdbx-url-sync` | stays in `keepass-attr`, not part of this project |
