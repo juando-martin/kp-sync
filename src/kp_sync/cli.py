@@ -882,6 +882,11 @@ def _print_status(result, *, long=False, versions=()):
         f"{pending_decisions} "
         "pending decisions"
     )
+    if summary.get("hub_unsynced"):
+        print(
+            "Hub saved since the last sync: its changes are not "
+            "synchronized yet."
+        )
     print("Persistent copies:")
     if not persistent:
         print("  none")

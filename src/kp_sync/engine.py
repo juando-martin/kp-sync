@@ -47,6 +47,7 @@ from kp_sync.history import (
     copy_record_order,
     current_version,
     merge_base,
+    sha256_file,
 )
 from kp_sync.kdbx import KdbxError, inspect_kdbx
 from kp_sync.lock import acquire_lock, file_lock
@@ -420,6 +421,17 @@ class SyncEngine:
         copies, sessions, summary = _status_details(
             self.config, self.run_directory, state, current, decisions
         )
+        # Local only: a hub saved since the copy record was written has
+        # changes not yet synchronized (or a plain re-save).
+        hub = copies.get(self.hub_identity)
+        if hub is not None and hub.get("version"):
+            try:
+                digest, _ = sha256_file(str(self.config.hub))
+            except OSError:
+                digest = None
+            if digest is not None and digest != hub["version"]:
+                hub["state"] = "saved since the last sync"
+                summary["hub_unsynced"] = 1
         action = last.get("action", "would probe endpoints")
         if action == "committed":
             action = "unchanged"
