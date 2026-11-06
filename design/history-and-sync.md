@@ -172,6 +172,51 @@ Rules:
   receives a unique `session:kp-access:<token>` identity. Its old fixed
   history record can be retired only through explicit exact-identity
   confirmation after runtime checks.
+- **Decommissioned key drives (proposed, not approved; PLAN item 10).**
+  Decommissioning a drive is a metadata operation that never needs the
+  drive and never touches its contents; erasing is separate. It has two
+  independent parts: removing (or ignoring) this machine's udevmon
+  device, which is local and per machine, and a shared-history drive
+  marker keyed by the exact `drive:SERIAL:FS_UUID` identity, which removes
+  its copy record from history and `status` and stops it pinning
+  versions. Unlike session markers, a drive marker is reversible: a
+  stick can be set up again with the same identity (not reformatted,
+  cloned, or a fixed filesystem ID; key drives cloned from one another
+  share an `fs_uuid`, so the serial is what tells them apart). A
+  reformatted drive has a new identity and is an ordinary unknown copy;
+  the old identity's marker stays and is harmless.
+  - The marker suppresses every ordinary copy record for that identity
+    from any store, whatever its generation, so a long-offline drive
+    store or a concurrent attach on another machine cannot resurrect
+    it. Only an explicit enrolment written by `drive-setup` lifts it
+    (enrolment after the marker in history order). A plain attach of a
+    decommissioned identity on any machine does not sync, record or
+    enrol it: it leaves the drive untouched and notifies that it was
+    decommissioned (host, date) and that `drive-setup` reuses it or
+    `udevmon devices remove` stops the action. Running the command on
+    another machine afterwards only removes that machine's device.
+  - Without the drive, the only checkable evidence is its record.
+    Refuse when the recorded version is not the current version or one
+    of its ancestors (an unmerged branch would be pruned), while the
+    drive is attached (detach or final sync first), while pending
+    decisions, a `keydisk-up` pending marker, in-flight writes or
+    recovery progress reference it, and, unless explicitly overridden,
+    when it is the last writable drive carrying history (cold offline
+    startup). Edits on the drive since its last sync and a displaced
+    crash-recovery file on it are invisible; they stay safe because a
+    returning drive is a `new` copy under the "Unknown copies" rules,
+    so only erasing can lose them and erasing must follow a sync.
+  - Markers hold identity, generation, time, host and an optional
+    display name for audit, never database bytes or credentials, and pin
+    no versions. Same publication, deferral and reporting rules as session
+    retirement. A marker lifted by a later enrolment may be dropped by
+    pruning. The reversible semantics need a new state-schema revision;
+    upgrade every client that shares history before publishing the first
+    drive marker.
+  - Re-enrolling a drive that still holds `pass.kdbx` and `kp-sync/`
+    exercises the unknown-copy path (password needed; an outdated copy is
+    overwritten after a backup), not the empty-drive fill; testing that
+    needs the drive's kp-sync files removed first.
 - **Pruning**: a version (and its base file) is kept while any copy record
   points to it, or while it is the merge-base of two such versions. When a
   version is pruned, its children take over its parents (the graph is

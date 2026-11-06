@@ -221,21 +221,28 @@ implementation. Each needs its design decisions recorded in the owning
    failing every hour, and return to the normal interval once it is
    reached again. Mostly a quieter journal; it should not delay syncs
    triggered by saves, drives or sessions. Small.
-10. **`kp-sync drive retire NAME|SERIAL:FS_UUID`.** Decommission a key
-    drive at once instead of waiting for its copy record to expire after
-    `keep_days` (180): refuse unless every copy is consistent and another
-    writable key drive remains configured (offline startup), remove the
-    udevmon device from kp-sync's drop-in (`udevmon devices remove`),
-    and record a durable retirement marker for `drive:SERIAL:FS_UUID`
-    in shared history, like the session retirement markers ("Retired
-    disposable session copies" in `design/history-and-sync.md`), so its
-    record leaves history and `status` and no longer pins versions. A
-    retired drive that comes back is an unknown copy (merged without
-    undoing deletions, never promoted). Finish by reminding the user to
-    erase the whole device (database, old bases, any
-    `config/rclone/rclone.conf`) and, for a credentials drive, to revoke
-    its rclone token. Today: `udevmon devices remove`, erase, and let the
-    record expire. Small to medium.
+10. **`kp-sync drive retire DRIVE` (decommission).** Needed first for
+    repeatable drive smoke tests (decommission, `drive-setup`, check)
+    and for lost or dead sticks. Design (proposed, not approved):
+    "Decommissioned key drives" under Baseline store in
+    `design/history-and-sync.md`, command row in
+    `design/configuration-cli.md`. In short: works without the drive;
+    `DRIVE` is a udevmon name (match on both serial and `fs_uuid`), an
+    alias or `SERIAL:FS_UUID`, previewed and applied with `--confirm`;
+    removes (or with `--keep-device` ignores) this machine's udevmon
+    device and writes a shared drive marker that suppresses the record
+    from every store and stops it pinning versions. Unlike session
+    markers it is reversible: only `drive-setup` re-enrols the identity,
+    and a plain attach of a decommissioned drive on any machine leaves it
+    untouched and notifies. Refuses on an unmerged recorded branch, an
+    attached drive, references from pending decisions, markers, in-flight
+    writes or recovery, and (unless overridden) the last writable
+    history drive. Needs a state-schema revision, so `alpha` must be
+    upgraded before the first drive marker is published. Erasing stays
+    separate (per filesystem and medium; on flash, overwriting is not
+    secure erase; revoke a credentials drive's rclone token). Today:
+    `udevmon devices remove`, erase, and let the record expire after
+    `keep_days`. Medium.
 
 Still open from earlier work (see REQUIRED_INPUT and the acceptance
 table): retiring old session records safely, retiring the old scripts
