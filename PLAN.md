@@ -221,6 +221,21 @@ implementation. Each needs its design decisions recorded in the owning
    failing every hour, and return to the normal interval once it is
    reached again. Mostly a quieter journal; it should not delay syncs
    triggered by saves, drives or sessions. Small.
+10. **`kp-sync drive retire NAME|SERIAL:FS_UUID`.** Decommission a key
+    drive at once instead of waiting for its copy record to expire after
+    `keep_days` (180): refuse unless every copy is consistent and another
+    writable key drive remains configured (offline startup), remove the
+    udevmon device from kp-sync's drop-in (`udevmon devices remove`),
+    and record a durable retirement marker for `drive:SERIAL:FS_UUID`
+    in shared history, like the session retirement markers ("Retired
+    disposable session copies" in `design/history-and-sync.md`), so its
+    record leaves history and `status` and no longer pins versions. A
+    retired drive that comes back is an unknown copy (merged without
+    undoing deletions, never promoted). Finish by reminding the user to
+    erase the whole device (database, old bases, any
+    `config/rclone/rclone.conf`) and, for a credentials drive, to revoke
+    its rclone token. Today: `udevmon devices remove`, erase, and let the
+    record expire. Small to medium.
 
 Still open from earlier work (see REQUIRED_INPUT and the acceptance
 table): retiring old session records safely, retiring the old scripts
