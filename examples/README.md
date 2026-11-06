@@ -80,3 +80,46 @@ on that machine, and nothing here moves or overwrites a database.
    `udevmon reload`, then `udevmon trigger NAME` for a drive that is
    already plugged in), add `alias kps='kp-sync --profile HOST'` and the
    Bash completion (README).
+
+## Starting a new database or adopting an existing one
+
+kp-sync never creates a database. Create it with KeePassXC, put it in one
+place, and the first sync records that copy as the first version of the
+history, publishes the history and fills the other places.
+
+**A new database** (for example a second one beside `pass.kdbx`):
+
+1. Create it in KeePassXC (Database → New database), with a password and,
+   if wanted, a key file. Prefer the GUI to `keepassxc-cli db-create`,
+   which writes KDBX 3.1 on KeePassXC 2.6.
+2. Give it its own profile and its own places: never the cloud folder,
+   history folder or drive folder of another database. For example
+   profile `beta-work` with `remote = "GoogleDrive:kp-work"`,
+   `[drives] directory = "kp-work"` and its own `hub` and `key_file`
+   (`db_name` if the file is not `pass.kdbx`).
+3. Put the file in one place: the hub path on a laptop with a persistent
+   hub, or the new cloud folder
+   (`rclone copyto work.kdbx GoogleDrive:kp-work/pass.kdbx`).
+4. `kp-sync --profile beta-work sync`: with no history and one copy, it
+   becomes the first version; empty places are filled as they are reached.
+5. Continue with "Setting up another machine" (units, `drive-setup`,
+   alias).
+
+**An existing database:**
+
+- *One copy:* as above from step 2.
+- *Several copies that may differ* (for example kept in step by an older
+  script): identical copies simply become the first version, but with no
+  history yet every entry that differs between copies is a conflict to
+  review. To avoid that, let the first sync see only the copy you trust
+  most (other drives unplugged, the old file not in the new cloud
+  folder), then add the others one at a time: each is compared with the
+  current version and is either backed up and overwritten (nothing newer
+  in it) or contributes only its newer entries; old deletions are never
+  undone.
+- All copies need the same password and key file; a copy with another
+  password is asked for separately when it is read.
+
+**The same database on another machine** needs nothing new: point the
+machine's profile at the same cloud folder and history (`remote`,
+`[baseline] dir`) and follow "Setting up another machine".
