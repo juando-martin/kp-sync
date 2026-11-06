@@ -36,6 +36,7 @@ from kp_sync.drives import DriveEndpoint, DriveError, list_drives
 from kp_sync.endpoints import (
     CommandEndpoint,
     Endpoint,
+    EndpointAbsent,
     EndpointChanged,
     EndpointFingerprint,
     EndpointUnavailable,
@@ -47,6 +48,7 @@ from kp_sync.history import (
     Version,
     copy_record_order,
     current_version,
+    is_ancestor,
     merge_base,
     sha256_file,
 )
@@ -68,7 +70,12 @@ from kp_sync.paths import (
     ensure_run_dir,
 )
 from kp_sync.pending import PendingStore
-from kp_sync.state import HistoryState, StateError
+from kp_sync.state import (
+    DRIVE_DECOMMISSIONED,
+    DRIVE_ENROLLED,
+    HistoryState,
+    StateError,
+)
 from kp_sync.ui.base import UI, UIUnavailable
 from kp_sync.ui.factory import create_ui
 from kp_sync.verify import (
@@ -170,6 +177,17 @@ class SyncError(RuntimeError):
 RECHECK_WINDOW = 5.0
 
 
+def _drive_copy_identity(identity: str) -> str:
+    """Return the validated ``drive:SERIAL:FS_UUID`` identity."""
+    from kp_sync.state import valid_drive_copy_identity
+
+    if isinstance(identity, str) and not identity.startswith("drive:"):
+        identity = f"drive:{identity}"
+    if not valid_drive_copy_identity(identity):
+        raise SyncError(f"invalid drive identity: {identity!r}")
+    return identity
+
+
 RECOVERED_PREFIX = "recovered:"
 RESOLVED_DISPLACED_LIMIT = 64
 
@@ -234,6 +252,11 @@ class SyncEngine:
             identity=self.hub_identity,
         )
         self.endpoints = (self.hub, *tuple(endpoints))
+        # Attached drives that history says are decommissioned: never
+        # observed, written or used as history stores (see
+        # "Decommissioned key drives"). Seeded from runtime history; a
+        # run adds those it learns about from shared history.
+        self.decommissioned_drives: dict[str, Endpoint] = {}
         self.baseline_stores = (
             tuple(baseline_stores)
             if baseline_stores is not None
@@ -243,6 +266,12 @@ class SyncEngine:
                 config.baseline["dir"],
             )
         )
+        try:
+            cached = HistoryState.load(self.run_directory / "state.json")
+        except StateError:
+            cached = None
+        if cached is not None:
+            self._exclude_decommissioned(cached.decommissioned())
         identities = [endpoint.identity for endpoint in self.endpoints]
         if len(set(identities)) != len(identities):
             raise ValueError(
@@ -480,6 +509,290 @@ class SyncEngine:
             cloud=cloud,
         )
 
+    def _exclude_decommissioned(self, identities: set[str]) -> None:
+        """Drop attached decommissioned drives from this run."""
+        found = {
+            endpoint.identity: endpoint
+            for endpoint in self.endpoints
+            if isinstance(endpoint, DriveEndpoint)
+            and endpoint.identity in identities
+        }
+        if not found:
+            return
+        self.decommissioned_drives.update(found)
+        self.endpoints = tuple(
+            endpoint
+            for endpoint in self.endpoints
+            if endpoint.identity not in found
+        )
+
+        def keep(store) -> bool:
+            endpoint = getattr(store, "endpoint", None)
+            return getattr(endpoint, "identity", None) not in found
+
+        removed = [
+            store.name for store in self.baseline_stores if not keep(store)
+        ]
+        self.baseline_stores = tuple(
+            store for store in self.baseline_stores if keep(store)
+        )
+        baseline = getattr(self, "_baseline", None)
+        if baseline is not None:
+            baseline.stores = tuple(
+                store for store in baseline.stores if keep(store)
+            )
+            baseline.available = [
+                store for store in baseline.available if keep(store)
+            ]
+            for name in removed:
+                baseline.states.pop(name, None)
+                baseline.snapshots.pop(name, None)
+                baseline.publication_outcomes.pop(name, None)
+
+    def _notify_decommissioned(self, *, dry_run: bool) -> None:
+        """Tell the user once per attachment why a drive is skipped."""
+        from kp_sync.log import detail
+
+        if not self.decommissioned_drives:
+            return
+        path = self.run_directory / "decommissioned-notices.json"
+        try:
+            notified = json.loads(path.read_text())
+            if not isinstance(notified, dict):
+                notified = {}
+        except (OSError, ValueError):
+            notified = {}
+        changed = False
+        for identity, endpoint in sorted(self.decommissioned_drives.items()):
+            drive_id = identity.removeprefix("drive:")
+            message = (
+                f"Key drive {drive_id} is decommissioned in the shared "
+                "history, so it was left untouched. Run kp-sync drive-setup "
+                "to use it again, or remove it from udevmon."
+            )
+            try:
+                attached = json.loads(
+                    (
+                        self.run_directory / "drives" / f"{drive_id}.json"
+                    ).read_text()
+                ).get("attached_at")
+            except (OSError, ValueError, AttributeError):
+                attached = None
+            key = attached or "configured"
+            if notified.get(identity) == key:
+                detail(message)
+                continue
+            self.ui.notify(message)
+            if not dry_run:
+                notified[identity] = key
+                changed = True
+        if changed:
+            atomic_write(path, json.dumps(notified, sort_keys=True))
+
+    def _drive_decommission_blockers(
+        self,
+        state: HistoryState,
+        identity: str,
+        *,
+        last_history_drive: bool,
+    ) -> list[str]:
+        """Return why ``identity`` cannot be decommissioned now."""
+        from kp_sync.drives import pending_attach_path
+
+        drive_id = identity.removeprefix("drive:")
+        reasons = []
+        if os.path.lexists(self.run_directory / "drives" / f"{drive_id}.json"):
+            reasons.append(
+                "the drive is attached on this machine; unplug it (or run "
+                f"kp-sync detach --drive-id {drive_id}) first"
+            )
+        if os.path.lexists(pending_attach_path(self.config.profile, drive_id)):
+            reasons.append("an attach of this drive is still pending")
+        for name, what in (
+            ("pending.json", "a pending decision"),
+            ("inflight.json", "an unfinished write"),
+            ("write-race.json", "an unresolved concurrent write"),
+        ):
+            try:
+                text = (self.run_directory / name).read_text(errors="replace")
+            except OSError:
+                continue
+            if drive_id in text:
+                reasons.append(f"{what} refers to this drive ({name})")
+        record = state.copies.get(identity)
+        if record is not None:
+            held = {
+                other.version
+                for key, other in state.copies.items()
+                if key != identity
+            }
+            if not any(
+                version == record.version
+                or is_ancestor(record.version, version, state.versions)
+                for version in held
+            ):
+                reasons.append(
+                    f"its recorded version {record.version[:12]} is not "
+                    "held or merged by any other copy; sync it once with "
+                    "another copy first"
+                )
+            others = [
+                key
+                for key in state.copies
+                if key.startswith("drive:") and key != identity
+            ]
+            if not others and not last_history_drive:
+                reasons.append(
+                    "it is the last key drive in the history, needed to "
+                    "start without network; add another drive first or "
+                    "pass --last-history-drive"
+                )
+        return reasons
+
+    def drive_decommission_preview(self, identity: str) -> dict[str, object]:
+        """Report what decommissioning ``identity`` would do."""
+        identity = _drive_copy_identity(identity)
+        with tempfile.TemporaryDirectory(
+            dir=self.run_directory, prefix="decommission-preview-"
+        ) as temporary_name:
+            baseline = BaselineManager(
+                self.run_directory, self.baseline_stores
+            )
+            state = baseline.load(Path(temporary_name), read_only=True)
+        return self._drive_report(
+            state, identity, baseline, last_history_drive=False
+        ) | {"shared_stores": dict(baseline.publication_outcomes)}
+
+    def _drive_report(
+        self, state, identity, baseline, *, last_history_drive
+    ) -> dict[str, object]:
+        record = state.copies.get(identity)
+        marker = state.drive_markers.get(identity)
+        return {
+            "identity": identity,
+            "record": (
+                None
+                if record is None
+                else {
+                    "version": record.version,
+                    "synced_at": record.synced_at,
+                    "host": record.host,
+                }
+            ),
+            "marker": (
+                None
+                if marker is None
+                else {
+                    "state": marker.state,
+                    "at": marker.at,
+                    "host": marker.host,
+                    "name": marker.name,
+                }
+            ),
+            "first_drive_marker": not state.drive_markers,
+            "blockers": (
+                []
+                if marker is not None and marker.state == DRIVE_DECOMMISSIONED
+                else self._drive_decommission_blockers(
+                    state, identity, last_history_drive=last_history_drive
+                )
+            ),
+        }
+
+    def decommission_drive(
+        self,
+        identity: str,
+        *,
+        name: str | None = None,
+        last_history_drive: bool = False,
+    ) -> dict[str, object]:
+        """Decommission a key drive in history; the drive is not needed.
+
+        Revalidates every blocker under the access-operation and engine
+        locks, then commits the marker to runtime history and publishes
+        it to the available shared stores.
+
+        Raises:
+            SyncError: If the identity is invalid or a blocker remains.
+        """
+        return self._mark_drive(
+            identity,
+            DRIVE_DECOMMISSIONED,
+            name=name,
+            last_history_drive=last_history_drive,
+        )
+
+    def enrol_drive(self, identity: str) -> dict[str, object]:
+        """Lift a decommissioning marker so the drive syncs again."""
+        return self._mark_drive(identity, DRIVE_ENROLLED)
+
+    def _mark_drive(
+        self,
+        identity: str,
+        marker_state: str,
+        *,
+        name: str | None = None,
+        last_history_drive: bool = False,
+    ) -> dict[str, object]:
+        identity = _drive_copy_identity(identity)
+        validate_hub_encryption(self.config)
+        self._ensure_runtime_dirs()
+        with file_lock(
+            self.run_directory / "access-op.lock",
+            self.config.sync["lock_timeout"],
+        ):
+            with file_lock(
+                self.run_directory / "lock", self.config.sync["lock_timeout"]
+            ):
+                with tempfile.TemporaryDirectory(
+                    dir=self.run_directory / "tmp", prefix="drive-marker-"
+                ) as temporary_name:
+                    temporary = Path(temporary_name)
+                    baseline = BaselineManager(
+                        self.run_directory, self.baseline_stores
+                    )
+                    state = baseline.load(temporary)
+                    # Never publish to an attached decommissioned drive.
+                    self._baseline = baseline
+                    self._exclude_decommissioned(state.decommissioned())
+                    report = self._drive_report(
+                        state,
+                        identity,
+                        baseline,
+                        last_history_drive=last_history_drive,
+                    )
+                    if (
+                        marker_state == DRIVE_DECOMMISSIONED
+                        and report["blockers"]
+                    ):
+                        raise SyncError(
+                            "cannot decommission "
+                            + identity.removeprefix("drive:")
+                            + ": "
+                            + "; ".join(report["blockers"])
+                        )
+                    changed = state.mark_drive(
+                        identity, marker_state, self.config.host, name=name
+                    )
+                    publication_error = None
+                    if changed:
+                        state.prune(
+                            keep_days=self.config.baseline["keep_days"]
+                        )
+                        state.save(self.run_directory / "state.json")
+                        try:
+                            baseline.save(state, temporary)
+                        except Exception as exc:
+                            publication_error = f"{type(exc).__name__}: {exc}"
+                    return report | {
+                        "changed": changed,
+                        "runtime_history": (
+                            "committed" if changed else "unchanged"
+                        ),
+                        "shared_stores": dict(baseline.publication_outcomes),
+                        "publication_error": publication_error,
+                    }
+
     def retire_session(
         self, identity: str, *, owner_confirmation: bool = False
     ) -> dict[str, object]:
@@ -681,6 +994,7 @@ class SyncEngine:
         self._ensure_runtime_dirs()
         # Drive copies this run could not write, by identity.
         self._copy_failures: dict[str, str] = {}
+        self._absent: set[str] = set()
         # Versions whose lost base stopped this run publishing history.
         self._unpublished_lost: set[str] = set()
         self._verification_reference_credentials = None
@@ -704,6 +1018,8 @@ class SyncEngine:
                 self.run_directory, self.baseline_stores
             )
             state = self._baseline.load(temporary)
+            self._exclude_decommissioned(state.decommissioned())
+            self._notify_decommissioned(dry_run=dry_run)
             self._inflight_candidates = self._load_inflight_candidates(state)
             if not dry_run:
                 state.save(state_path)
@@ -1094,6 +1410,7 @@ class SyncEngine:
                 and (
                     item.sha256 is not None
                     or item.identity == self.hub_identity
+                    or item.identity in self._absent
                 )
             ]
             if (
@@ -1621,6 +1938,9 @@ class SyncEngine:
         state: HistoryState,
     ) -> list[Observation]:
         observations = []
+        # Writable copies proven empty (an attached drive without a
+        # database): install targets, not unreachable endpoints.
+        self._absent: set[str] = set()
         for index, endpoint in enumerate((*self.endpoints, *self._recovered)):
             try:
                 observation = self._observe(
@@ -1630,6 +1950,19 @@ class SyncEngine:
                     state=state,
                     cached=True,
                 )
+            except EndpointAbsent as exc:
+                if endpoint.readonly:
+                    raise SyncError(str(exc)) from exc
+                from kp_sync.log import info
+
+                info(f"{exc}; installing the current version")
+                self._absent.add(endpoint.identity)
+                observations.append(
+                    Observation(
+                        endpoint.identity, endpoint, None, None, None, None
+                    )
+                )
+                continue
             except EndpointUnavailable as exc:
                 if endpoint.on_unavailable == "fail":
                     raise SyncError(str(exc)) from exc
@@ -2117,6 +2450,7 @@ class SyncEngine:
                 for identity, item in classified.items()
             )
             or observations[self.hub_identity].sha256 is None
+            or self._absent
         ):
             return "would promote current version"
         if (
@@ -3490,14 +3824,24 @@ class SyncEngine:
     def _unwritten_drive_copy(self, observation: Observation) -> bool:
         """Return whether a failed drive write left the copy unchanged.
 
-        Only a reachable pendrive copy whose bytes still match the
-        pre-write observation may be skipped; anything else (other
-        endpoint types, a changed, missing or unreadable copy, a
-        replaced drive) keeps failing the run.
+        Only a pendrive copy whose bytes still match the pre-write
+        observation, or an empty drive that still has no database after
+        a failed install, may be skipped; anything else (other endpoint
+        types, a changed, missing or unreadable copy, a replaced drive)
+        keeps failing the run.
         """
         endpoint = observation.endpoint
-        if not isinstance(endpoint, DriveEndpoint) or not observation.sha256:
+        if not isinstance(endpoint, DriveEndpoint):
             return False
+        if observation.sha256 is None:
+            # An install into an empty drive is a no-replace rename:
+            # nothing was written while no database file exists.
+            if observation.identity not in self._absent:
+                return False
+            try:
+                return not os.path.lexists(endpoint.path)
+            except OSError:
+                return False
         try:
             endpoint._check_mount()
             current = EndpointFingerprint.from_file(endpoint.path).sha256
@@ -4425,6 +4769,7 @@ def endpoints_from_config(
                     download=item.download,
                     upload=item.upload,
                     probe=item.probe,
+                    reach=_reach_check(item),
                     identity=item.identity,
                     readonly=item.readonly,
                     optional=item.optional,
@@ -4462,6 +4807,15 @@ def endpoints_from_config(
                 )
             )
     return tuple(endpoints)
+
+
+def _reach_check(item):
+    """The endpoint's cloud reach check, or None with ``false``."""
+    if item.reach_check is False:
+        return None
+    from kp_sync.reach import ReachCheck
+
+    return ReachCheck(item.reach_check, item.reach_timeout, item.remote)
 
 
 def _rclone_transport(item, credentials, run_directory, registry):

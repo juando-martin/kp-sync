@@ -32,6 +32,7 @@ COMMANDS = (
     ("down", "Detach a drive and stop when idle"),
     ("drive-sync", "Submit a udevmon drive event to the daemon"),
     ("drive-setup", "Register a key drive with udevmon and fill it"),
+    ("drive-retire", "Decommission a key drive, present or not"),
     ("session", "Start a confined remote session"),
     ("service", "Manage the daemon, named SSH sessions and kp-access owners"),
     ("access-op", "Handle a kp-access file operation"),
@@ -259,6 +260,28 @@ def _build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="show what would be done, change nothing",
             )
+        elif name == "drive-retire":
+            command_parser.add_argument(
+                "drive",
+                metavar="DRIVE",
+                help="udevmon device name, drives.aliases name or "
+                "SERIAL:FS_UUID",
+            )
+            command_parser.add_argument(
+                "--confirm",
+                metavar="SERIAL:FS_UUID",
+                help="apply, confirming this exact identity",
+            )
+            command_parser.add_argument(
+                "--keep-device",
+                action="store_true",
+                help="set the udevmon device to ignore instead of removing",
+            )
+            command_parser.add_argument(
+                "--last-history-drive",
+                action="store_true",
+                help="allow decommissioning the last key drive in history",
+            )
         elif name == "sftp-serve":
             command_parser.add_argument(
                 "--diagnostic", action="store_true", help=argparse.SUPPRESS
@@ -461,14 +484,62 @@ def _dispatch(parser: argparse.ArgumentParser, args) -> int:
         from kp_sync.drives import DriveError
 
         try:
+            config = load_config(args.config, profile=args.profile)
+
+            def enrol(identity: str) -> dict:
+                run_directory = ensure_run_dir(config.profile)
+                return SyncEngine(
+                    config,
+                    endpoints_from_config(config, run_directory),
+                    run_directory=run_directory,
+                ).enrol_drive(identity)
+
             return setup(
-                load_config(args.config, profile=args.profile),
+                config,
                 args.mountpoint,
                 args.name,
                 rclone=args.rclone,
                 dry_run=args.dry_run,
+                enrol=enrol,
             )
-        except (ConfigError, DriveSetupError, DriveError, OSError) as exc:
+        except (
+            ConfigError,
+            DriveSetupError,
+            DriveError,
+            OSError,
+            StateError,
+            SyncError,
+        ) as exc:
+            error(str(exc))
+            return 1
+    if args.command == "drive-retire":
+        from kp_sync.drive_retire import DriveRetireError, retire
+
+        try:
+            config = load_config(args.config, profile=args.profile)
+            run_directory = ensure_run_dir(config.profile)
+            engine = SyncEngine(
+                config,
+                endpoints_from_config(config, run_directory),
+                run_directory=run_directory,
+            )
+            return retire(
+                config,
+                engine,
+                args.drive,
+                confirm=args.confirm,
+                keep_device=args.keep_device,
+                last_history_drive=args.last_history_drive,
+            )
+        except (
+            ConfigError,
+            DriveRetireError,
+            OSError,
+            StateError,
+            SyncError,
+            RuntimeError,
+            ValueError,
+        ) as exc:
             error(str(exc))
             return 1
     daemon_commands = {"run", "up", "attach", "detach", "down", "eject"}

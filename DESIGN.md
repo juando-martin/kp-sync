@@ -37,7 +37,7 @@ This is a navigation aid, not a second specification of the rules.
 | Concern | Authoritative sections |
 |---|---|
 | Unknown/stale copies, foreign saves, verification, backups and atomic promotion | [Sync algorithm](design/history-and-sync.md#sync-algorithm-kp-sync-sync) |
-| Shared history reconciliation, publication checks, pruning, session retirement and drive decommissioning (proposed) | [Baseline store](design/history-and-sync.md#baseline-store) |
+| Shared history reconciliation, publication checks, pruning, session retirement and drive decommissioning | [Baseline store](design/history-and-sync.md#baseline-store) |
 | Lease ownership, synchronization serialization and runtime cleanup | [Daemon and leases](design/lifecycle.md#daemon-and-leases), [error handling and safety](design/architecture.md#error-handling-and-safety) |
 | Private runtime storage and explicit persistence exceptions | [Runtime state](design/lifecycle.md#runtime-state-all-under-xdg_runtime_dirkp-sync), [baseline store](design/history-and-sync.md#baseline-store), [configuration](design/configuration-cli.md#configuration-toml), [credentials](design/interaction.md#credentials) |
 | Credential lifetime, browser approval and secrets outside IPC/logs | [Credentials](design/interaction.md#credentials) |
@@ -52,8 +52,9 @@ This is a navigation aid, not a second specification of the rules.
 | Sync, classification, merge, restore or history changes | Architecture, history/sync, interaction, testing |
 | Daemon scheduling, leases or cleanup | Lifecycle, safety, history/sync, interaction, testing |
 | Disposable session retirement | Baseline store, lifecycle, integration points, command/status contracts, testing |
-| Key drive decommissioning (proposed) | Baseline store, unknown copies, endpoints/access (udevmon actions), command/status contracts, testing |
+| Key drive decommissioning | Baseline store, unknown copies, endpoints/access (udevmon actions), command/status contracts, testing |
 | Endpoints, pendrives, SSH or kp-access | Endpoints/access, lifecycle, history/sync, configuration, testing |
+| Cloud reachability and offline launch warnings | Endpoints/access (rclone, cloud reach check), lifecycle (launch), configuration/commands (`doctor`), interaction, testing |
 | UI, applications or credentials | Interaction, lifecycle, configuration/commands, testing |
 | Configuration or CLI changes | Configuration/commands and the chapter owning the affected behavior |
 | Packaging, documentation or API work | Development, packaging decisions, affected contracts |

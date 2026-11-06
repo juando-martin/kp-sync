@@ -19,6 +19,17 @@ class EndpointUnavailable(EndpointError):
     pass
 
 
+class EndpointAbsent(EndpointUnavailable):
+    """The endpoint is reachable and verified but holds no database.
+
+    Raised only where absence is proven (an attached drive whose
+    identity was checked), so the engine may install the current
+    version there with a no-replace rename.
+    """
+
+    pass
+
+
 class EndpointChanged(EndpointError):
     """Raised when a target changed during a guarded file operation.
 

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable
 
 from kp_sync.endpoints.base import (
+    EndpointAbsent,
     EndpointChanged,
     EndpointFingerprint,
     EndpointUnavailable,
@@ -262,8 +263,17 @@ class DriveEndpoint(FileEndpoint):
         self._validate_drive_path()
 
     def probe(self) -> EndpointFingerprint:
-        """Fingerprint the database only while its drive is mounted."""
+        """Fingerprint the database only while its drive is mounted.
+
+        Raises:
+            EndpointAbsent: If the verified drive has no database yet.
+            EndpointUnavailable: If the drive is gone or unreadable.
+        """
         self._check_mount()
+        if not os.path.lexists(self.path):
+            raise EndpointAbsent(
+                f"{self.name}: no database on the drive yet: {self.path}"
+            )
         return super().probe()
 
     def fetch(self, destination: str | os.PathLike[str]) -> None:

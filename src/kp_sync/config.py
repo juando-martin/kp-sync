@@ -103,6 +103,8 @@ _ENDPOINT_KEYS = {
     "probe",
     "probe_is_content_hash",
     "rclone_transport",
+    "reach_check",
+    "reach_timeout",
     "fetch",
     "store",
 }
@@ -136,6 +138,8 @@ class EndpointConfig:
     probe: tuple[str, ...] | None = None
     probe_is_content_hash: bool = False
     rclone_transport: str = "auto"
+    reach_check: str | bool = "auto"
+    reach_timeout: float = 3
     fetch: tuple[str, ...] | None = None
     store: tuple[str, ...] | None = None
 
@@ -280,6 +284,7 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
             "foreign_writers": bool,
             "probe_is_content_hash": bool,
             "rclone_transport": str,
+            "reach_timeout": float,
             "source": str,
             "identity": str,
             "remote": str,
@@ -316,6 +321,8 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
             "upload",
             "probe",
             "rclone_transport",
+            "reach_check",
+            "reach_timeout",
         },
     }
     invalid = set(value) - common_keys - type_keys[endpoint_type]
@@ -373,6 +380,25 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
             raise ConfigError(
                 f"endpoints[{index}].rclone_transport must be cli or auto"
             )
+        reach_check = value.get("reach_check", "auto")
+        if reach_check is not False and reach_check != "auto":
+            from kp_sync.reach import parse_target
+
+            try:
+                if not isinstance(reach_check, str):
+                    raise ValueError("expected a string")
+                parse_target(reach_check)
+            except ValueError as exc:
+                raise ConfigError(
+                    f'endpoints[{index}].reach_check must be "auto", '
+                    f'false or "HOST:PORT" ({exc})'
+                ) from None
+        reach_timeout = value.get("reach_timeout", 3)
+        if not 0 < reach_timeout <= timeout:
+            raise ConfigError(
+                f"endpoints[{index}].reach_timeout must be greater than "
+                "zero and at most timeout"
+            )
 
     return EndpointConfig(
         name=name,
@@ -416,6 +442,8 @@ def _parse_endpoint(value: Any, index: int) -> EndpointConfig:
         ),
         probe_is_content_hash=value.get("probe_is_content_hash", False),
         rclone_transport=value.get("rclone_transport", "auto"),
+        reach_check=value.get("reach_check", "auto"),
+        reach_timeout=value.get("reach_timeout", 3),
         fetch=(
             _command(value["fetch"], f"endpoints[{index}].fetch")
             if endpoint_type == "command"

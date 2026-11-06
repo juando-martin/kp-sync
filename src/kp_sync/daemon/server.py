@@ -737,6 +737,45 @@ class Controller:
             gui=self.config.ui["gui"],
         )
 
+    @staticmethod
+    def _cloud_launch_message(offline, *, late=False):
+        """The launch warning; ``late`` once the application is open."""
+        clouds = "; ".join(f"{identity}: {text}" for identity, text in offline)
+        if late:
+            opening = (
+                f"The cloud could not be reached ({clouds}). KeePassXC is "
+                "open on this machine's copy"
+            )
+        else:
+            opening = (
+                f"The cloud cannot be reached ({clouds}). KeePassXC opens "
+                "this machine's copy"
+            )
+        return (
+            opening + ", which may be missing changes made elsewhere; your "
+            "changes stay here until the cloud is reached again."
+        )
+
+    def _late_cloud_warning(self, future):
+        """After a launch that outran its pre-sync: warn if offline.
+
+        Runs in the thread that completed the sync, so the dialog gets
+        its own thread and never holds the sync slot.
+        """
+        try:
+            if future.cancelled() or future.exception() is not None:
+                return  # failures are notified as usual
+            offline = self._offline_clouds(future.result())
+        except Exception as exc:
+            error(f"late cloud warning failed: {exc}")
+            return
+        if offline:
+            threading.Thread(
+                target=self._warn_quietly,
+                args=(self._cloud_launch_message(offline, late=True),),
+                daemon=True,
+            ).start()
+
     def _warn_quietly(self, message):
         try:
             self._desktop_ui().warn(message)
@@ -1283,6 +1322,8 @@ class Controller:
                     "pre-sync timed out; launching existing hub while "
                     "synchronization continues"
                 )
+                # Warn late if it ends without the cloud.
+                future.add_done_callback(self._late_cloud_warning)
             else:
                 info(
                     "pre-sync timed out with no hub; waiting for "
@@ -1301,15 +1342,7 @@ class Controller:
             )
         offline = self._offline_clouds(outcome)
         if offline:
-            message = (
-                "The cloud cannot be reached ("
-                + "; ".join(
-                    f"{identity}: {text}" for identity, text in offline
-                )
-                + "). KeePassXC opens this machine's copy, which may be "
-                "missing changes made elsewhere; your changes stay here "
-                "until the cloud is reached again."
-            )
+            message = self._cloud_launch_message(offline)
             if self.config.launch["confirm_without_cloud"]:
                 if (
                     self._desktop_ui().confirm(

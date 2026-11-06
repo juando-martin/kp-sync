@@ -3,6 +3,44 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Added
+
+- `kp-sync drive-retire DRIVE` decommissions a key drive, present or
+  not, named by its udevmon device, a `[drives.aliases]` name or
+  `SERIAL:FS_UUID`. Without `--confirm` it previews the drive's record
+  and anything that blocks it (attached, unsynced or the only copy of
+  a version); applying writes a reversible marker to the shared
+  history, so every machine leaves the drive untouched from its next
+  sync, and removes this machine's udevmon device (`--keep-device`
+  sets it to ignore). `drive-setup` enrols the drive again. The first
+  marker moves the shared history to schema 3, which kp-sync before
+  0.5.0 cannot read: upgrade every machine before using it.
+- Before a run's first rclone call, a check of at most `reach_timeout`
+  seconds (default 3) tries a TCP connection to the cloud's server
+  (derived from the rclone remote, or a proxy) and asks NetworkManager
+  about a captive portal. When it fails, the cloud is skipped at once,
+  so an offline start shows the "cloud cannot be reached" warning
+  before KeePassXC opens instead of launching silently after 20 s.
+  `reach_check = "HOST:PORT"` or `false` per `rclone` endpoint;
+  `doctor` reports a check that fails while rclone works.
+- A pre-launch sync still running when the application starts and then
+  ending without the cloud shows the same warning late.
+
+### Fixed
+
+- An attached key drive without a database (as left by `drive-setup`
+  on an empty stick) is now filled with the current version; it was
+  skipped as unavailable.
+- `drive-setup` gives a second profile's drives and actions their own
+  tag (`keepass-PROFILE`), so one profile's drives no longer run
+  another profile's actions, and describes the trigger by the
+  profile's existing actions.
+- After the first rclone timeout of a run the cloud is unavailable for
+  the rest of it, so a hanging cloud costs one timeout per run instead
+  of one per call.
+
 ## 0.4.0 (2026-11-06)
 
 ### Added

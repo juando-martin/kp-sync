@@ -48,6 +48,30 @@ def _selects_profile(run: list, config) -> bool:
     return kind == "default"
 
 
+def _key_drive_tag(documents, config) -> str:
+    """The udevmon tag that selects this profile's drive actions.
+
+    A profile keeps the tag its actions already use. Otherwise the
+    first profile gets ``keepass`` and later ones ``keepass-PROFILE``,
+    so one profile's drives never run another profile's actions.
+    """
+    from kp_sync.integration import _kp_sync_target
+
+    others = False
+    for action in udevmon.actions(documents):
+        run = action.get("run")
+        if not isinstance(run, list) or "drive-sync" not in run:
+            continue
+        if _kp_sync_target(run) is None:
+            continue
+        if _selects_profile(run, config):
+            if isinstance(action.get("tag"), str):
+                return action["tag"]
+        elif action.get("tag") == "keepass":
+            others = True
+    return f"keepass-{config.profile or 'default'}" if others else "keepass"
+
+
 def plan(
     config,
     mountpoint: str | os.PathLike[str],
@@ -119,7 +143,8 @@ def plan(
         ),
         None,
     )
-    tags = ["keepass"] + (["rclone"] if rclone else [])
+    key_tag = _key_drive_tag(documents, config)
+    tags = [key_tag] + (["rclone"] if rclone else [])
     if existing is None:
         if name in devices:
             raise DriveSetupError(
@@ -146,6 +171,12 @@ def plan(
         )
     else:
         device_name = existing
+        status = devices[existing].get("status")
+        if status in {"ignored", "disabled"}:
+            commands.append(["udevmon", "devices", "enable", existing])
+            lines.append(
+                f"udevmon: device {existing!r} is {status}; enable it."
+            )
         present = set(devices[existing].get("tags") or [])
         missing_tags = [tag for tag in tags if tag not in present]
         if missing_tags:
@@ -183,7 +214,11 @@ def plan(
             ("main", "up"): "keepass-up",
             ("main", "down"): "keepass-down",
         }[(mode, event)]
-        action_name = base
+        action_name = (
+            base
+            if key_tag == "keepass"
+            else f"{base}-{config.profile or 'default'}"
+        )
         if action_name in names:
             action_name = f"{base}-{config.profile or 'default'}"
         commands.append(
@@ -193,7 +228,7 @@ def plan(
                 "add",
                 on,
                 "--tag",
-                "keepass",
+                key_tag,
                 "--name",
                 action_name,
                 "--lock",
@@ -217,10 +252,17 @@ def plan(
             f"udevmon: add action {action_name!r} (drive-sync {event} "
             f"--mode {mode}) to config.d/{udevmon.DROP_IN}.toml."
         )
+    # Existing up actions decide what the trigger does, not the default.
+    up_modes = {
+        action["run"][action["run"].index("--mode") + 1]
+        for action in profile_actions
+        if "up" in action["run"] and "--mode" in action["run"][:-1]
+    }
+    starts = "main" in up_modes if up_modes else mode == "main"
     commands.append(["udevmon", "trigger", device_name, "--wait"])
     lines.append(
         f"udevmon: run {device_name!r}'s actions now, which attaches it"
-        + (" and starts the application." if mode == "main" else ".")
+        + (" and starts the application." if starts else ".")
     )
     return lines, commands
 
@@ -236,8 +278,23 @@ def setup(
     environ: Mapping[str, str] | None = None,
     identify: Callable[[Path], str] | None = None,
     out: Callable[[str], None] = print,
+    enrol: Callable[[str], dict] | None = None,
 ) -> int:
-    """Plan and (unless ``dry_run``) run the drive setup."""
+    """Plan and (unless ``dry_run``) run the drive setup.
+
+    ``enrol`` lifts a decommissioning marker for the drive's identity
+    (``SyncEngine.enrol_drive``) before udevmon attaches it; without
+    it a decommissioned drive stays untouched.
+    """
+    found: list[str] = []
+    identify_drive_once = identify or (
+        lambda m: identify_drive(m, runner=runner)
+    )
+
+    def remember(mount: Path) -> str:
+        found.append(identify_drive_once(mount))
+        return found[-1]
+
     lines, commands = plan(
         config,
         mountpoint,
@@ -245,7 +302,7 @@ def setup(
         rclone=rclone,
         runner=runner,
         environ=environ,
-        identify=identify,
+        identify=remember,
     )
     for line in lines:
         out(line)
@@ -255,8 +312,19 @@ def setup(
             "drop-in (contrib/rclone-config in udevmon)."
         )
     if dry_run:
+        out(
+            "If the shared history has this drive decommissioned, setup "
+            "enrols it again."
+        )
         out("Dry run: nothing was changed.")
         return 0
+    if enrol is not None:
+        result = enrol(found[-1])
+        if result.get("changed"):
+            out(
+                "The drive was decommissioned; it is enrolled again in the "
+                "history."
+            )
     for argv in commands:
         result = logged(runner)(
             argv, capture_output=True, text=True, timeout=180

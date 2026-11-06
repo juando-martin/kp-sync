@@ -2,6 +2,7 @@
 
 from kp_sync.endpoints.base import (
     Endpoint,
+    EndpointAbsent,
     EndpointChanged,
     EndpointError,
     EndpointFingerprint,
@@ -14,6 +15,7 @@ from kp_sync.endpoints.rclone import RcloneEndpoint
 __all__ = [
     "CommandEndpoint",
     "Endpoint",
+    "EndpointAbsent",
     "EndpointChanged",
     "EndpointError",
     "EndpointFingerprint",

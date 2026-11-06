@@ -99,7 +99,13 @@ command is a short client that sends it a request over a Unix socket.
      reached, shown beside the application without delaying it; with
      `confirm_without_cloud` the same text is a question asked before
      launching (no launch on "no"). A pre-sync still running at the
-     timeout gives no warning; its failure is notified as usual. While
+     timeout gives no warning when the application starts. *Since 0.5.0:* when that pre-sync later finishes
+     without reaching the cloud, the same warning dialog is shown then,
+     beside the running application, in both modes (it can no longer be
+     a question; the application is open). The cloud reach check
+     (endpoints chapter) makes a clearly offline pre-sync finish within
+     `prestart_timeout`, so the warning, or the `confirm_without_cloud`
+     question, normally comes before launch. While
      the cloud stays unreachable, each daemon sync (including the hourly
      idle sync) notifies, at most once per `cloud_warning_hours`, when
      the hub holds changes not yet synchronized and the cloud has not

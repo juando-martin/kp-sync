@@ -850,6 +850,68 @@ class DaemonTest(unittest.TestCase):
         self.assertIn("not reached since this machine started", prompts[0])
         self.assertIn("Launch the existing database?", prompts[0])
 
+    def _slow_controller(self, missing):
+        from dataclasses import replace
+
+        config = self._cloud_config()
+        config = replace(
+            config, daemon={**config.daemon, "prestart_timeout": 0.2}
+        )
+        controller = self._offline_controller(config)
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        class Engine:
+            def sync(self, dry_run=False):
+                release.wait(10)
+                return SyncResult(
+                    current=None,
+                    action="unchanged",
+                    classifications={"cloud:gd": "unchanged"},
+                    missing=missing,
+                )
+
+        controller.engine_factory = lambda ui: Engine()
+        return controller, release
+
+    def test_pre_sync_outliving_the_launch_warns_late_without_cloud(self):
+        controller, release = self._slow_controller(("cloud:gd",))
+        shown = threading.Event()
+        dialogs = []
+
+        class UI:
+            def warn(self, message):
+                dialogs.append(message)
+                shown.set()
+
+        with patch.object(controller, "_desktop_ui", return_value=UI()):
+            outcome = controller.handle({"command": "up"})
+            self.assertEqual(outcome["action"], "pre-sync still running")
+            controller.apps.start.assert_called_once()
+            self.assertEqual(dialogs, [])
+            release.set()
+            self.assertTrue(shown.wait(5))
+        self.assertIn("The cloud could not be reached", dialogs[0])
+        self.assertIn("KeePassXC is open on this machine's copy", dialogs[0])
+
+    def test_pre_sync_outliving_the_launch_and_reaching_cloud_is_silent(self):
+        controller, release = self._slow_controller(())
+        with patch.object(
+            controller, "_desktop_ui", side_effect=AssertionError("dialog")
+        ):
+            future_done = threading.Event()
+            original = controller._late_cloud_warning
+
+            def watched(future):
+                original(future)
+                future_done.set()
+
+            with patch.object(controller, "_late_cloud_warning", watched):
+                controller.handle({"command": "up"})
+                release.set()
+                self.assertTrue(future_done.wait(5))
+        controller.apps.start.assert_called_once()
+
     def test_launch_with_cloud_reached_shows_no_dialog(self):
         controller = self._offline_controller(self._cloud_config())
         controller.engine_factory = lambda ui: type(

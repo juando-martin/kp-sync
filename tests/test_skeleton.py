@@ -139,6 +139,7 @@ class SkeletonTest(unittest.TestCase):
                 "down",
                 "drive-sync",
                 "drive-setup",
+                "drive-retire",
                 "doctor",
                 "session",
                 "service",

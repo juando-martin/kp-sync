@@ -287,6 +287,32 @@ avoids rclone start-up time. Falls back to separate processes while the
 server is not answering, for custom commands, and with rclone older than
 1.61.
 .RE
+.TP
+.BR reach_check " (string or false, default \(dqauto\(dq)"
+Before the first rclone call of each run, check within
+.B reach_timeout
+that the cloud's server can be reached: NetworkManager must not report a
+captive portal, and a TCP connection must open (nothing is sent). A
+failure skips the endpoint for that run as unreachable, so an offline
+start warns before the application opens instead of waiting for rclone;
+a success decides nothing.
+.B auto
+derives the server from the remote's type in the rclone configuration
+(Google Drive, OneDrive, Dropbox, Box; S3, WebDAV, SFTP and FTP from
+their own host settings; wrappers such as crypt and alias are followed)
+and connects to the HTTPS or HTTP proxy instead when the environment sets
+one. A remote with no known server is not checked.
+.RI \(dq HOST : PORT \(dq
+connects there instead (custom servers, a proxy the environment does not
+show);
+.B false
+turns the check off.
+.B kp-sync doctor
+reports a check that fails while rclone reaches the cloud.
+.TP
+.BR reach_timeout " (number, default 3)"
+Seconds for the whole reach check; at most
+.BR timeout .
 .SS "command endpoints"
 .TP
 .BR fetch " (array of strings, required)"

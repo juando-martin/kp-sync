@@ -565,6 +565,14 @@ class IntegrationTest(unittest.TestCase):
                         item for item in checks if item.name == "rclone:cloud"
                     ).ok
                 )
+                # The reach check runs after a working probe; this
+                # remote has no type, so it is reported as skipped.
+                self.assertIn(
+                    "reach check skipped",
+                    next(
+                        item for item in checks if item.name == "reach:cloud"
+                    ).message,
+                )
                 database = (
                     "Drive:kp/vault.kdbx"
                     if "kp" in remote

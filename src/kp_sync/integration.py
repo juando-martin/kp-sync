@@ -1358,6 +1358,29 @@ def _keepassxc_reload_enabled(ini: configparser.ConfigParser) -> bool:
     return True
 
 
+def _reach_doctor_check(endpoint, config_path) -> Check | None:
+    """Run the reach check after a working probe; they must agree."""
+    from kp_sync.engine import _reach_check
+
+    reach = _reach_check(endpoint)
+    if reach is None:
+        return None
+    name = f"reach:{endpoint.name}"
+    target, why = reach.target(config_path)
+    if target is None:
+        return Check(name, True, f"reach check skipped: {why}")
+    verdict = reach.run(config_path)
+    if verdict.ok:
+        return Check(name, True, f"reach check connects to {target}")
+    return Check(
+        name,
+        False,
+        f"reach check fails but rclone reaches the cloud "
+        f'({verdict.reason}); set reach_check = "HOST:PORT" for this '
+        "endpoint, or reach_check = false",
+    )
+
+
 def _rclone_checks(
     config: Config, runner: Callable, runtime_dir=None
 ) -> list[Check]:
@@ -1435,6 +1458,9 @@ def _rclone_checks(
                         "probe work",
                     )
                 )
+                reach = _reach_doctor_check(endpoint, config_path)
+                if reach is not None:
+                    checks.append(reach)
             except (
                 OSError,
                 subprocess.SubprocessError,

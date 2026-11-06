@@ -19,6 +19,11 @@ from kp_sync.history import (
 from kp_sync.paths import atomic_write
 
 SCHEMA_VERSION = 2
+# Written only while the state holds drive markers, so clients that
+# predate them keep reading ordinary history; they reject schema 3.
+DRIVE_MARKER_SCHEMA_VERSION = 3
+DRIVE_DECOMMISSIONED = "decommissioned"
+DRIVE_ENROLLED = "enrolled"
 
 
 class StateError(ValueError):
@@ -50,6 +55,80 @@ class RetirementRecord:
             raise StateError("invalid retirement timestamp") from exc
 
 
+def valid_drive_copy_identity(identity: object) -> bool:
+    """Return whether ``identity`` is a ``drive:SERIAL:FS_UUID`` key."""
+    if not isinstance(identity, str) or not identity.startswith("drive:"):
+        return False
+    serial, separator, fs_uuid = identity[len("drive:") :].partition(":")
+    return bool(
+        serial
+        and separator
+        and fs_uuid
+        and not any(char in "/\\\x00" for char in serial)
+        and all(char.isalnum() or char == "-" for char in fs_uuid)
+        and not any(ord(char) < 32 for char in identity)
+    )
+
+
+@dataclass(frozen=True)
+class DriveMarker:
+    """Reversible decommissioning metadata for one key drive identity.
+
+    ``decommissioned`` suppresses every copy record for the identity.
+    ``enrolled`` (written by ``drive-setup``) lifts it; copy records
+    from before the enrolment stay suppressed, so a stale store cannot
+    bring back the pre-decommissioning record.
+    """
+
+    state: str
+    generation: int
+    at: str
+    host: str
+    name: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.state not in {DRIVE_DECOMMISSIONED, DRIVE_ENROLLED}:
+            raise StateError(f"invalid drive marker state: {self.state!r}")
+        if (
+            isinstance(self.generation, bool)
+            or not isinstance(self.generation, int)
+            or self.generation < 0
+        ):
+            raise StateError("drive marker generation must not be negative")
+        if not isinstance(self.host, str) or not self.host:
+            raise StateError("drive marker host must be a non-empty string")
+        if self.name is not None and (
+            not isinstance(self.name, str)
+            or not self.name
+            or any(ord(char) < 32 or ord(char) == 127 for char in self.name)
+        ):
+            raise StateError("invalid drive marker name")
+        try:
+            datetime.fromisoformat(self.at.replace("Z", "+00:00"))
+        except (AttributeError, ValueError) as exc:
+            raise StateError("invalid drive marker timestamp") from exc
+
+    def order(self) -> tuple[int, str, str]:
+        """Return the ordering that reconciles markers across stores."""
+        return self.generation, self.at, self.host
+
+    def suppresses(self, record: CopyRecord) -> bool:
+        """Return whether this marker hides ``record``."""
+        if self.state == DRIVE_DECOMMISSIONED:
+            return True
+        return record.generation <= self.generation
+
+
+def _apply_drive_markers(
+    copies: dict[str, CopyRecord], markers: dict[str, DriveMarker]
+) -> dict[str, CopyRecord]:
+    return {
+        identity: record
+        for identity, record in copies.items()
+        if identity not in markers or not markers[identity].suppresses(record)
+    }
+
+
 @dataclass
 class HistoryState:
     """Version DAG, copy records, retirement markers, and generation."""
@@ -58,6 +137,7 @@ class HistoryState:
     versions: dict[str, Version] = field(default_factory=dict)
     copies: dict[str, CopyRecord] = field(default_factory=dict)
     retirements: dict[str, RetirementRecord] = field(default_factory=dict)
+    drive_markers: dict[str, DriveMarker] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if isinstance(self.generation, bool) or not isinstance(
@@ -75,11 +155,20 @@ class HistoryState:
             for identity, record in self.retirements.items()
         ):
             raise StateError("retirement identities must be session copies")
-        self.copies = {
-            identity: record
-            for identity, record in self.copies.items()
-            if identity not in self.retirements
-        }
+        if any(
+            not valid_drive_copy_identity(identity)
+            or not isinstance(marker, DriveMarker)
+            for identity, marker in self.drive_markers.items()
+        ):
+            raise StateError("drive markers must name drive copies")
+        self.copies = _apply_drive_markers(
+            {
+                identity: record
+                for identity, record in self.copies.items()
+                if identity not in self.retirements
+            },
+            self.drive_markers,
+        )
         try:
             validate_graph(self.versions)
             if any(
@@ -103,7 +192,8 @@ class HistoryState:
         if (
             isinstance(schema_version, bool)
             or not isinstance(schema_version, int)
-            or schema_version not in {1, SCHEMA_VERSION}
+            or schema_version
+            not in {1, SCHEMA_VERSION, DRIVE_MARKER_SCHEMA_VERSION}
         ):
             raise StateError(
                 f"unsupported state schema version: {schema_version!r}"
@@ -112,6 +202,9 @@ class HistoryState:
         raw_versions = payload.get("versions")
         raw_copies = payload.get("copies")
         raw_retirements = payload.get("retirements", {})
+        raw_markers = payload.get("drive_markers", {})
+        if not isinstance(raw_markers, dict):
+            raise StateError("state drive markers must be an object")
         if isinstance(generation, bool) or not isinstance(generation, int):
             raise StateError("state generation must be an integer")
         if (
@@ -203,8 +296,28 @@ class HistoryState:
                 raise StateError(
                     f"invalid retirement {identity!r}: {exc}"
                 ) from exc
+        drive_markers: dict[str, DriveMarker] = {}
+        for identity, raw in raw_markers.items():
+            if not isinstance(identity, str) or not isinstance(raw, dict):
+                raise StateError(
+                    f"drive marker {identity!r} must be an object"
+                )
+            try:
+                drive_markers[identity] = DriveMarker(
+                    state=raw["state"],
+                    generation=raw["generation"],
+                    at=raw["at"],
+                    host=raw["host"],
+                    name=raw.get("name"),
+                )
+            except (KeyError, TypeError, StateError) as exc:
+                raise StateError(
+                    f"invalid drive marker {identity!r}: {exc}"
+                ) from exc
         try:
-            return cls(generation, versions, copies, retirements)
+            return cls(
+                generation, versions, copies, retirements, drive_markers
+            )
         except (HistoryError, StateError) as exc:
             raise StateError(f"invalid state: {exc}") from exc
 
@@ -241,8 +354,12 @@ class HistoryState:
 
     def to_dict(self) -> dict[str, Any]:
         """Return this state as deterministic JSON data."""
-        return {
-            "schema_version": SCHEMA_VERSION,
+        payload = {
+            "schema_version": (
+                DRIVE_MARKER_SCHEMA_VERSION
+                if self.drive_markers
+                else SCHEMA_VERSION
+            ),
             "generation": self.generation,
             "versions": {
                 sha: {
@@ -275,6 +392,26 @@ class HistoryState:
                 for identity, record in sorted(self.retirements.items())
             },
         }
+        if self.drive_markers:
+            payload["drive_markers"] = {
+                identity: {
+                    "state": marker.state,
+                    "generation": marker.generation,
+                    "at": marker.at,
+                    "host": marker.host,
+                    **({"name": marker.name} if marker.name else {}),
+                }
+                for identity, marker in sorted(self.drive_markers.items())
+            }
+        return payload
+
+    def decommissioned(self) -> set[str]:
+        """Return the drive copy identities currently decommissioned."""
+        return {
+            identity
+            for identity, marker in self.drive_markers.items()
+            if marker.state == DRIVE_DECOMMISSIONED
+        }
 
     def save(self, path: str | Path) -> None:
         """Persist state atomically with private file permissions."""
@@ -299,12 +436,7 @@ class HistoryState:
         """
         timestamp = synced_at or datetime.now(timezone.utc).isoformat()
         keys = tuple(copy_keys)
-        retired = set(keys) & self.retirements.keys()
-        if retired:
-            raise StateError(
-                "cannot record retired session identity: "
-                + ", ".join(sorted(retired))
-            )
+        self._refuse_retired(keys)
         version = self.versions.get(sha)
         parent_tuple = tuple(sorted(set(parents)))
         if version is None:
@@ -346,12 +478,7 @@ class HistoryState:
         if sha not in self.versions:
             raise StateError(f"cannot record copies for unknown version {sha}")
         keys = tuple(copy_keys)
-        retired = set(keys) & self.retirements.keys()
-        if retired:
-            raise StateError(
-                "cannot record retired session identity: "
-                + ", ".join(sorted(retired))
-            )
+        self._refuse_retired(keys)
         timestamp = synced_at or datetime.now(timezone.utc).isoformat()
         self.generation += 1
         for key in keys:
@@ -362,6 +489,58 @@ class HistoryState:
                 host=host,
                 sha256=sha,
             )
+
+    def _refuse_retired(self, keys: tuple[str, ...]) -> None:
+        retired = set(keys) & self.retirements.keys()
+        if retired:
+            raise StateError(
+                "cannot record retired session identity: "
+                + ", ".join(sorted(retired))
+            )
+        decommissioned = set(keys) & self.decommissioned()
+        if decommissioned:
+            raise StateError(
+                "cannot record decommissioned drive identity: "
+                + ", ".join(sorted(decommissioned))
+            )
+
+    def mark_drive(
+        self,
+        identity: str,
+        state: str,
+        host: str,
+        *,
+        name: str | None = None,
+        at: str | None = None,
+    ) -> bool:
+        """Decommission or re-enrol a drive; return whether it changed.
+
+        Decommissioning drops the drive's copy record at once. An
+        enrolment is recorded only over a decommissioning marker.
+        """
+        if not valid_drive_copy_identity(identity):
+            raise StateError(f"invalid drive copy identity: {identity!r}")
+        current = self.drive_markers.get(identity)
+        if state == DRIVE_ENROLLED and (
+            current is None or current.state != DRIVE_DECOMMISSIONED
+        ):
+            return False
+        if state == DRIVE_DECOMMISSIONED and (
+            current is not None and current.state == DRIVE_DECOMMISSIONED
+        ):
+            self.copies.pop(identity, None)
+            return False
+        marker = DriveMarker(
+            state=state,
+            generation=self.generation + 1,
+            at=at or datetime.now(timezone.utc).isoformat(),
+            host=host,
+            name=name,
+        )
+        self.generation += 1
+        self.drive_markers[identity] = marker
+        self.copies = _apply_drive_markers(self.copies, self.drive_markers)
+        return True
 
     def retire(
         self,
@@ -419,6 +598,7 @@ def merge_states(states: Iterable[HistoryState]) -> HistoryState:
     versions: dict[str, Version] = {}
     copies: dict[str, CopyRecord] = {}
     retirements: dict[str, RetirementRecord] = {}
+    drive_markers: dict[str, DriveMarker] = {}
     for state in states:
         generation = max(generation, state.generation)
         for sha, version in state.versions.items():
@@ -480,9 +660,17 @@ def merge_states(states: Iterable[HistoryState]) -> HistoryState:
                 current.host,
             ):
                 retirements[identity] = record
+        for identity, marker in state.drive_markers.items():
+            current_marker = drive_markers.get(identity)
+            if (
+                current_marker is None
+                or marker.order() > current_marker.order()
+            ):
+                drive_markers[identity] = marker
 
     for identity in retirements:
         copies.pop(identity, None)
+    copies = _apply_drive_markers(copies, drive_markers)
 
     try:
         validate_graph(versions)
@@ -490,4 +678,6 @@ def merge_states(states: Iterable[HistoryState]) -> HistoryState:
             raise HistoryError("copy record references an unknown version")
     except HistoryError as exc:
         raise StateError(f"merged state is invalid: {exc}") from exc
-    return HistoryState(generation, versions, copies, retirements)
+    return HistoryState(
+        generation, versions, copies, retirements, drive_markers
+    )

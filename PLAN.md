@@ -163,7 +163,7 @@ Collected with the owner on 2026-11-05; not yet approved for
 implementation. Each needs its design decisions recorded in the owning
 `design/` chapter before work starts.
 
-1. **Cloud staleness warnings.** *Implemented 2026-11-06 (unreleased):
+1. **Cloud staleness warnings.** *Released in 0.4.0:
    `cloud_contact.py`, the launch dialog in `daemon/server.py`,
    `[daemon] cloud_warning_hours`; design in Lifecycle.* `status` reports when the cloud was
    last reached ("cloud last reached 3 days ago"), and a desktop
@@ -193,13 +193,13 @@ implementation. Each needs its design decisions recorded in the owning
 5. **`kp-sync completion install`.** Write the argcomplete registration
    and the alias completion (`examples/bash-completion/kps`) into
    `~/.local/share/bash-completion/completions/`. Small.
-6. **Pendrive integrity check.** *Implemented 2026-11-06 (unreleased):
+6. **Pendrive integrity check.** *Released in 0.4.0:
    `baseline.check_drive_history`, run once per attachment by the
    engine; design in "Missing bases and repair".* On attach, verify the drive's stored
    history files (bases, `state.json`) against their recorded hashes,
    to catch a failing stick before it is the only offline copy. Check
    first which hashes are already recorded. Small.
-7. **Pendrive setup.** *Implemented 2026-11-06 (unreleased):
+7. **Pendrive setup.** *Released in 0.4.0:
    `kp-sync drive-setup` (`drive_setup.py`, `udevmon.py`); not yet tried
    on a real new drive.* A command that prepares a new key drive: copy
    the current database (and the history the drive store needs) to it,
@@ -221,34 +221,69 @@ implementation. Each needs its design decisions recorded in the owning
    failing every hour, and return to the normal interval once it is
    reached again. Mostly a quieter journal; it should not delay syncs
    triggered by saves, drives or sessions. Small.
-10. **`kp-sync drive retire DRIVE` (decommission).** Needed first for
-    repeatable drive smoke tests (decommission, `drive-setup`, check)
-    and for lost or dead sticks. Design (proposed, not approved):
-    "Decommissioned key drives" under Baseline store in
-    `design/history-and-sync.md`, command row in
-    `design/configuration-cli.md`. In short: works without the drive;
-    `DRIVE` is a udevmon name (match on both serial and `fs_uuid`), an
-    alias or `SERIAL:FS_UUID`, previewed and applied with `--confirm`;
-    removes (or with `--keep-device` ignores) this machine's udevmon
-    device and writes a shared drive marker that suppresses the record
-    from every store and stops it pinning versions. Unlike session
-    markers it is reversible: only `drive-setup` re-enrols the identity,
-    and a plain attach of a decommissioned drive on any machine leaves it
-    untouched and notifies. Refuses on an unmerged recorded branch, an
-    attached drive, references from pending decisions, markers, in-flight
-    writes or recovery, and (unless overridden) the last writable
-    history drive. Needs a state-schema revision, so `alpha` must be
-    upgraded before the first drive marker is published. Erasing stays
-    separate (per filesystem and medium; on flash, overwriting is not
-    secure erase; revoke a credentials drive's rclone token). Today:
-    `udevmon devices remove`, erase, and let the record expire after
-    `keep_days`. Medium.
+10. **`kp-sync drive-retire DRIVE` (decommission).** *Implemented
+    2026-11-06, released in 0.5.0: `drive_retire.py`,
+    drive markers in `state.py` (schema 3 only while one exists),
+    `SyncEngine.decommission_drive`/`enrol_drive`/exclusion of attached
+    decommissioned drives, re-enrolment in `drive-setup`; tests in
+    `tests/test_drive_retire.py`.* Rules: "Decommissioned key drives"
+    under Baseline store in `design/history-and-sync.md`; command row in
+    `design/configuration-cli.md`. Needed for repeatable drive smoke
+    tests and lost sticks. Before the first real use, upgrade `alpha` too
+    (it cannot read schema 3). Live `kp-test` cycle (setup fill,
+    retire, untouched re-attach, re-enrol) passed 2026-11-06, also through udevmon with
+    `udisksctl` plug/unplug; desktop
+    notice from daemon syncs still open (NEXT_STEPS). Erasing stays a
+    separate proposal (per filesystem and medium; revoke a credentials
+    drive's rclone token).
 
 Still open from earlier work (see REQUIRED_INPUT and the acceptance
 table): retiring old session records safely, retiring the old scripts
 on `alpha`, the Windows dialog, and the features not yet seen working
 with real data (production kp-access END cleanup, production restore,
 named SSH/owner services, provider-driven merge).
+11. **Cloud reach check and late offline warning.** *Implemented
+    2026-11-06, released in 0.5.0: `reach.py`,
+    `RcloneEndpoint._ensure_reachable`, `reach_check`/`reach_timeout`,
+    the late warning in `daemon/server.py`, `doctor`'s `reach:NAME`;
+    `tests/test_reach.py` and daemon/doctor tests. Live `kp-test` run
+    passed 2026-11-06 in an offline network namespace (`unshare -U
+    --map-current-user -n`, host network untouched) with a temporary
+    `sleep` app: sync 0.15 s (rclone alone >40 s), launch warning
+    0.26 s after the request; with `reach_check = false` the app
+    started at 20 s unwarned and the late warning followed; online
+    sync unchanged (check 26 ms). Follow-up (also 0.5.0): the first
+    timeout of a run makes the cloud unavailable for the rest of it
+    (design "After a timeout"; tests in `test_reach.py` and
+    `test_rclone_rcd.py`); live offline with the check off: one sync
+    30.2 s, one timeout).
+    NetworkManager is trusted only for `portal`, and proxies follow
+    Go's rules (see the design).* Before a run's first rclone call,
+    ask NetworkManager and open a TCP connection to the cloud's server
+    within `reach_timeout` (3 s); a failure skips the cloud for that run
+    as unreachable, a success decides nothing (`reach_check = "auto"`,
+    `false` or `"HOST:PORT"` per `rclone` endpoint; `auto` derives the
+    server from the remote type, following wrappers and proxies). A
+    pre-sync that outlives `prestart_timeout` and ends without the
+    cloud shows the launch warning late. `doctor` reports a check that
+    fails while rclone works. Rules: "Cloud reach check" in
+    `design/endpoints-and-access.md`, the launch steps in
+    `design/lifecycle.md`, endpoint keys and `doctor` in
+    `design/configuration-cli.md`. Tests: fake NetworkManager, socket
+    and resolver (no network); target derivation per type, wrapper
+    depth, proxy and `NO_PROXY`; a failed check skips without calling
+    rclone and keeps the launch warning; the late warning. Live: a
+    `kp-test` launch with the network off (warning before KeePassXC)
+    and on (no change). Makes item 9 cheap. Medium.
+12. **Configurable reach-check servers.** The rclone type → server
+    table of the cloud reach check is hard-coded in `reach.py`
+    (`FIXED_SERVERS`, `WRAPPERS`, the `s3`/`webdav`/`sftp`/`ftp` rules).
+    A profile table such as `[reach.types] mega = "g.api.mega.co.nz:443"`
+    would add or correct types without a release; per-endpoint
+    `reach_check = "HOST:PORT"` already overrides one endpoint. A stale
+    built-in host hides that cloud on every run until `doctor` flags it,
+    so entries should stay few and long-standing. Small; only if a
+    provider moves or a new remote type is needed.
 
 ## Deferred and supervised work
 

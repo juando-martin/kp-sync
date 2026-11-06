@@ -497,6 +497,33 @@ class EndpointTransportTest(unittest.TestCase):
         )
         self.assertIsNone(endpoint.probe())
 
+    def test_an_rcd_timeout_ends_the_endpoint_for_the_run(self):
+        source = self.directory / "s.json"
+        source.write_bytes(b"{}")
+        transport = FakeTransport(outputs=[RcdTimeout("x"), {"list": []}])
+        endpoint = self.endpoint(transport)
+        endpoint.begin_run()
+        with self.assertRaisesRegex(EndpointUnavailable, "timed out"):
+            endpoint.upload_file(source, endpoint.remote_path("a"))
+        for _ in range(2):
+            with self.assertRaisesRegex(
+                EndpointUnavailable, "unavailable for the rest of this run"
+            ):
+                endpoint.probe()
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual(self.runner.calls, [])  # no fallback command
+        endpoint.begin_run()
+        endpoint.probe()
+        self.assertEqual(len(transport.calls), 2)
+        # Other rcd failures stay per call.
+        transport = FakeTransport(outputs=[RcdError("x"), {"list": []}])
+        endpoint = self.endpoint(transport)
+        endpoint.begin_run()
+        with self.assertRaises(EndpointUnavailable):
+            endpoint.upload_file(source, endpoint.remote_path("a"))
+        endpoint.probe()
+        self.assertEqual(len(transport.calls), 2)
+
     def test_custom_and_batch_commands_never_use_the_rcd(self):
         transport = FakeTransport()
         endpoint = self.endpoint(

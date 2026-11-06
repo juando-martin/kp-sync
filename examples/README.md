@@ -68,6 +68,10 @@ on that machine, and nothing here moves or overwrites a database.
    drive (`udevmon devices add NAME --from-mountpoint MOUNT --tag keepass
    --file 50-kp-sync`); check with `udevmon check` and
    `udevmon explain mounted`.
+   To stop using a key drive (lost, given away, or for a test cycle),
+   run `kp-sync --profile HOST drive-retire NAME` to preview, then again
+   with `--confirm SERIAL:FS_UUID`; the drive need not be plugged in.
+   `drive-setup` enrols it again.
 4. Close the application and disable any older startup, then
    `kp-sync --profile HOST service install daemon --desktop` and
    `service enable daemon --now`. Install refuses group-writable

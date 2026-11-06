@@ -225,6 +225,80 @@
     rules apply and the operation is never repeated as a command. Only
     when the socket could not be reached, so nothing was requested, does
     the call run as a command instead.
+- **Cloud reach check** (since 0.5.0:
+  `reach.py`, `RcloneEndpoint._ensure_reachable`; PLAN "Proposed
+  improvements" 11). Offline, rclone retries until the
+  endpoint `timeout` (30 s), longer than `prestart_timeout` (20 s), so
+  KeePassXC starts before the pre-sync knows the cloud is unreachable
+  and the launch warning never appears (owner report of 2026-11-05). A
+  check of a few seconds before a run's first rclone call settles the
+  clearly offline case early.
+  - *Only a shortcut to "unreachable".* A failed check skips the
+    endpoint for this run exactly as an unreachable probe does
+    (`EndpointUnavailable`, skipped and not queued, the same launch
+    warning and notifications). A passing check decides nothing: the
+    filtered listing and every later call run as today, and their
+    failures count as before. Availability is still the rclone probe
+    itself (configuration chapter), never a ping.
+  - *Steps,* within `reach_timeout` (default 3 s) in all. 1. Ask
+    NetworkManager for its `Connectivity` property (`busctl --system
+    get-property`, at most 1 s), without calling `CheckConnectivity`:
+    only `portal` fails ("captive portal"), since a TCP connection can
+    succeed through a portal. `none` is not trusted: NetworkManager
+    reports it also when it does not manage a working connection
+    (manual interface, tether), and a truly offline connection fails
+    at once in step 2 anyway. 2. Open a TCP connection to the target:
+    resolve it (in a helper thread, since `getaddrinfo` cannot be timed
+    out) and connect to up to six addresses at once, so a dead IPv6
+    route cannot use up the time IPv4 needs; any accepting address
+    passes. Nothing is sent, and the sockets are closed at once.
+  - *Target.* `reach_check` on the endpoint: `"auto"` (default),
+    `false` (no check) or `"HOST:PORT"`. `auto` takes the remote's type
+    and only non-secret keys (`type`, `remote`, `provider`, `region`,
+    `endpoint`, `url`, `host`, `port`) from the rclone config the
+    endpoint already uses (its private copy or `rclone_config`, else
+    rclone's own lookup: `RCLONE_CONFIG`, `$XDG_CONFIG_HOME` or
+    `~/.config` `rclone/rclone.conf`, `~/.rclone.conf`), with
+    `RCLONE_CONFIG_NAME_KEY` variables overriding it as in rclone;
+    tokens are never read into the result or logged, and an encrypted
+    config gives no target. Known types: `drive` → `www.googleapis.com:443`,
+    `onedrive` → `graph.microsoft.com:443`, `dropbox` →
+    `api.dropboxapi.com:443`, `box` → `api.box.com:443`; `s3`, `webdav`,
+    `sftp` and `ftp` take their host and port from `endpoint`, `url` or
+    `host`/`port` (AWS `s3` without `endpoint`:
+    `s3.REGION.amazonaws.com:443`); wrappers (`crypt`, `alias`,
+    `chunker`, `compress`, `hasher`) follow `remote`, at most four
+    levels. A remote with several upstreams (`union`, `combine`), an
+    unknown type or an unreadable config has no target: step 2 is
+    skipped (logged once per daemon) and the run behaves as today.
+  - *Proxies.* rclone, like any Go program, honours only
+    `HTTPS_PROXY`/`HTTP_PROXY` (either case) and `NO_PROXY`, and only
+    for HTTP APIs (not `ALL_PROXY`, not SFTP/FTP). When the environment
+    rclone runs with sets the matching variable and `NO_PROXY` (`*`, a
+    host or a domain suffix) does not exclude the target, step 2
+    connects to the proxy's host and port instead. An explicit
+    `reach_check` is used as given.
+  - *Scope.* Once per run and endpoint, before its first call. The
+    verdict holds for that run only (a restart in the run reuses it);
+    the next run checks again. Online, it costs one TCP handshake.
+  - *Wrong verdicts.* A blocked or filtered check while rclone works
+    would hide the cloud on every run, so `doctor` runs the check and
+    the real probe and reports "reach check fails but rclone reaches
+    the cloud: set `reach_check`". Each failure is logged with its
+    reason ("cloud: not reachable (reach check: connect to
+    www.googleapis.com:443 timed out after 3 s); skipped").
+  - *After a timeout* (since 0.5.0). The first
+    rclone call of a run that times out (command or rcd request) makes
+    the endpoint unavailable for the rest of that run: later calls,
+    including pre- and post-write re-checks, fail at once without
+    running rclone, so a cloud that hangs costs one `timeout` per run
+    instead of one per call (the history load and the database listing
+    each waited 30 s before). Other failures (an exit status, a missing
+    object, an rcd error) stay per call. `begin_run` clears it, and so
+    does `end_run`, which also runs when a run pauses for a question,
+    so a resumed run tries again. Skipping a re-check after a timed-out
+    write is safe: the copy stays unverified for this run, and the next
+    run classifies whatever landed by its content.
 - **`~/bin/keepass`**: thin wrapper over `kp-sync run --app keepassxc`
   (`--legacy` selects `keepass-legacy`), keeping the name existing
   launchers use. The desktop menu entry and autostart call `kp-sync run`

@@ -417,6 +417,32 @@ removed at any moment. Used on machines whose drive is a secondary copy.
 Release a drive's lease, usually after it has already been removed, and
 warn if it missed a synchronization that was due.
 .TP
+\fBdrive\-retire\fR [\fB\-\-confirm\fR \fISERIAL:FS_UUID\fR] [\fB\-\-keep\-device\fR] [\fB\-\-last\-history\-drive\fR] \fIDRIVE\fR
+Decommission a key drive; the drive need not be present and its contents
+are not touched.
+.I DRIVE
+is a udevmon device name, a
+.B [drives.aliases]
+name or
+.IR SERIAL:FS_UUID .
+Without
+.B \-\-confirm
+it only previews the drive's history record and what blocks the change.
+With it, the shared history marks the drive decommissioned (its record
+leaves history and
+.BR status ),
+and this machine's udevmon device in kp-sync's drop-in is removed
+.RB ( \-\-keep\-device
+sets it to ignore instead). A decommissioned drive plugged in on any
+machine is left untouched;
+.B drive\-setup
+enrols it again. Refused while the drive is attached, while a pending
+decision or unfinished write refers to it, when no other copy holds its
+version, and for the last key drive in the history unless
+.BR \-\-last\-history\-drive .
+The first marker moves shared history to schema 3: upgrade every machine
+sharing it first. Erasing the drive is a separate step.
+.TP
 \fBup\fR [\fB\-\-drive\-id\fR \fIID\fR] [\fB\-\-app\fR \fINAME\fR] [\fIMOUNTPOINT\fR]
 .B attach
 the drive when a mount point is given, then
@@ -459,7 +485,12 @@ with
 in kp-sync's drop-in
 .IR ~/.config/udevmon/config.d/50-kp-sync.toml ,
 add this profile's attach/detach (persistent hub) or up/down actions if
-missing, and run the drive's actions now. The normal attach then fills an
+missing, and run the drive's actions now. When another profile's actions
+already use
+.BR keepass ,
+this profile's drives and actions get the tag
+.BI keepass\- PROFILE
+instead, so neither profile acts on the other's drives. The normal attach then fills an
 empty drive with the current database and history; a drive that already
 holds a database is synchronized (merged if it differs), never
 overwritten. The command itself writes no database.

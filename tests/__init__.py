@@ -34,3 +34,14 @@ for _name, _relative in (
     ("XDG_CACHE_HOME", ".cache"),
 ):
     os.environ[_name] = str(HOME / _relative)
+
+# Never ask the real NetworkManager or open network connections from
+# the cloud reach check: report "unknown" and a successful connect,
+# so endpoints behave as without the check. Tests of the check inject
+# their own probes.
+from kp_sync import reach as _reach  # noqa: E402
+
+_reach.PROBES = _reach.Probes(
+    connectivity=lambda timeout: "unknown",
+    connect=lambda host, port, timeout: None,
+)

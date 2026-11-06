@@ -140,8 +140,10 @@ class DriveSetupTest(unittest.TestCase):
             'on = ["unmounted"]\nrun = ["kp-sync", "--profile", "beta", '
             '"drive-sync", "down", "--mode", "secondary"]\n'
         )
-        status, lines, calls = self.run_setup(self.config())
+        status, lines, calls = self.run_setup(self.config(persistent=False))
         self.assertEqual(calls, [["udevmon", "trigger", "old-key", "--wait"]])
+        # Its secondary actions attach only, whatever the hub's default.
+        self.assertFalse(any("starts the application" in x for x in lines))
         self.assertTrue(any("never overwritten" in line for line in lines))
 
     def test_known_drive_gets_missing_tags(self):
@@ -155,7 +157,7 @@ class DriveSetupTest(unittest.TestCase):
             ["udevmon", "devices", "tag", "old-key", "keepass", "rclone"],
         )
 
-    def test_ram_hub_uses_main_mode_and_avoids_taken_action_names(self):
+    def test_second_profile_gets_its_own_tag_and_action_names(self):
         self.write_drop_in(
             '[[actions]]\nname = "keepass-up"\ntag = "keepass"\n'
             'on = ["startup"]\nrun = ["kp-sync", "--profile", "other", '
@@ -163,13 +165,36 @@ class DriveSetupTest(unittest.TestCase):
         )
         config = self.config(persistent=False, name="alpha")
         _, lines, calls = self.run_setup(config)
-        up = calls[1]
-        self.assertIn("keepass-up-alpha", up)
+        device, up, down = calls[0], calls[1], calls[2]
+        # The other profile's keepass actions must not see this drive,
+        # nor these actions the other profile's drives.
+        self.assertEqual(device[device.index("--tag") + 1], "keepass-alpha")
+        self.assertNotIn("keepass", device)
+        for action, name in (
+            (up, "keepass-up-alpha"),
+            (down, "keepass-down-alpha"),
+        ):
+            self.assertEqual(action[action.index("--tag") + 1], "keepass-alpha")
+            self.assertEqual(action[action.index("--name") + 1], name)
         self.assertEqual(up[up.index("--mode") + 1], "main")
-        self.assertIn("keepass-down", calls[2])
         self.assertTrue(
             any("starts the application" in line for line in lines)
         )
+
+    def test_profile_keeps_the_tag_its_actions_use(self):
+        self.write_drop_in(
+            '[[actions]]\nname = "keepass-up"\ntag = "keepass"\n'
+            'on = ["startup"]\nrun = ["kp-sync", "--profile", "other", '
+            '"drive-sync", "up", "--mode", "main"]\n'
+            '[[actions]]\nname = "mine-up"\ntag = "mine"\n'
+            'on = ["startup"]\nrun = ["kp-sync", "--profile", "alpha", '
+            '"drive-sync", "up", "--mode", "main"]\n'
+        )
+        config = self.config(persistent=False, name="alpha")
+        _, _, calls = self.run_setup(config)
+        self.assertEqual(calls[0][calls[0].index("--tag") + 1], "mine")
+        self.assertEqual(len(calls), 3)  # device, down action, trigger
+        self.assertEqual(calls[1][calls[1].index("--tag") + 1], "mine")
 
     def test_refusals_change_nothing(self):
         cases = [

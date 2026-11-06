@@ -484,6 +484,72 @@ class EngineTest(unittest.TestCase):
         )
         return engine, drive, mount, sha, sha256_file(str(self.copy_a))[0]
 
+    def _empty_drive(self, resolver=lambda _: "serial:uuid"):
+        data = kdbx4_bytes(b"current drive content" * 100)
+        state, sha = self._seed(data)
+        mount = self.root / "drive"
+        mount.mkdir()
+        drive = DriveEndpoint(
+            "pendrive",
+            mount,
+            "kp/pass.kdbx",
+            "serial:uuid",
+            identity_resolver=resolver,
+        )
+        engine = SyncEngine(
+            self.config,
+            (self.endpoint_a, self.endpoint_b, drive),
+            run_directory=self.run_dir,
+            baseline_stores=(),
+            ui=NoneUI(),
+        )
+        return engine, drive, mount, sha
+
+    def test_empty_attached_drive_receives_the_current_version(self):
+        engine, drive, _, sha = self._empty_drive()
+        dry = engine.sync(dry_run=True)
+        self.assertEqual(dry.action, "would promote current version")
+        self.assertFalse(drive.path.exists())
+
+        result = engine.sync()
+
+        self.assertTrue(result.consistent)
+        self.assertNotIn(drive.identity, result.missing)
+        self.assertEqual(sha256_file(str(drive.path))[0], sha)
+        state = HistoryState.load(self.run_dir / "state.json")
+        self.assertEqual(state.copies[drive.identity].version, sha)
+        again = engine.sync()
+        self.assertEqual(again.action, "unchanged")
+
+    def test_unmounted_drive_is_still_skipped_not_installed(self):
+        from kp_sync.drives import DriveNotMounted
+
+        mounted = {"yes": True}
+
+        def resolver(_):
+            if not mounted["yes"]:
+                raise DriveNotMounted("gone")
+            return "serial:uuid"
+
+        engine, drive, mount, _ = self._empty_drive(resolver)
+        mounted["yes"] = False
+        result = engine.sync()
+        self.assertIn(drive.identity, result.missing)
+        self.assertEqual(list(mount.iterdir()), [])
+
+    def test_failed_install_on_empty_drive_skips_only_that_drive(self):
+        engine, drive, mount, sha = self._empty_drive()
+        mount.chmod(0o555)
+        self.addCleanup(mount.chmod, 0o755)
+        with patch("kp_sync.log.error") as logged:
+            result = engine.sync()
+        self.assertIn(drive.identity, logged.call_args.args[0])
+        self.assertFalse(drive.path.exists())
+        self.assertEqual(sha256_file(str(self.copy_b))[0], sha)
+        state = HistoryState.load(self.run_dir / "state.json")
+        self.assertNotIn(drive.identity, state.copies)
+        self.assertNotEqual(result.action, "failed")
+
     def test_unwritable_drive_copy_is_skipped_and_left_pending(self):
         engine, drive, _, old, new = self._unwritable_drive_engine(NoneUI())
         with patch("kp_sync.log.error") as logged:

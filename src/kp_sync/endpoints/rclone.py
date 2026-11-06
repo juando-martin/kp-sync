@@ -20,7 +20,7 @@ from kp_sync.endpoints.base import (
     EndpointUnavailable,
     new_hash,
 )
-from kp_sync.log import debug_command, detail, logged
+from kp_sync.log import debug_command, detail, info, logged
 from kp_sync.paths import atomic_write
 
 
@@ -80,6 +80,7 @@ class RcloneEndpoint(Endpoint):
         runner: Callable | None = None,
         credentials=None,
         transport=None,
+        reach=None,
         **kwargs,
     ) -> None:
         """Configure the remote root, commands, and listing cache.
@@ -102,6 +103,9 @@ class RcloneEndpoint(Endpoint):
                 Generated commands then go through its ``rclone rcd``
                 while it is ready; custom and batch commands, and every
                 call while it is not ready, run as commands.
+            reach: Optional ``kp_sync.reach.ReachCheck`` run before
+                the first rclone call of each run; a failure makes
+                every call of that run unavailable at once.
             **kwargs: Policy options accepted by ``Endpoint``.
 
         Raises:
@@ -117,6 +121,10 @@ class RcloneEndpoint(Endpoint):
         )
         self.credentials = credentials
         self.transport = transport
+        self.reach = reach
+        self._reach_verdict = None
+        # The first timeout of a run: later calls fail at once.
+        self._timed_out: str | None = None
         self._runner = runner if runner is not None else subprocess.run
         self.database_remote = self.remote_path(database_name)
         self.database_relative = str(PurePosixPath(database_name))
@@ -142,6 +150,7 @@ class RcloneEndpoint(Endpoint):
 
     def begin_run(self) -> None:
         """Import changed external credentials before rclone calls."""
+        self._forget_run_failures()
         if self.credentials is not None:
             if self.transport is not None and self.credentials.import_due():
                 # The rcd holds the copy and its lock; it has no reload.
@@ -149,7 +158,12 @@ class RcloneEndpoint(Endpoint):
             self.credentials.refresh()
 
     def end_run(self) -> None:
-        """Drop drained credentials once the run is done."""
+        """Drop drained credentials once the run is done.
+
+        Also called when a run pauses for a question; the resumed run
+        checks reachability again.
+        """
+        self._forget_run_failures()
         if self.credentials is not None:
             if self.transport is not None and self.credentials.drain_due():
                 self.transport.stop()
@@ -201,7 +215,53 @@ class RcloneEndpoint(Endpoint):
         separator = "" if self.root.endswith(":") else "/"
         return f"{self.root}{separator}{path}"
 
+    def _forget_run_failures(self) -> None:
+        """Each run (and each resumed run) starts with a clean slate."""
+        self._reach_verdict = None
+        self._timed_out = None
+
+    def _note_timeout(self, message: str) -> EndpointUnavailable:
+        """Remember a timeout so the rest of the run skips at once."""
+        if self._timed_out is None:
+            self._timed_out = message
+            info(
+                f"{self.name}: timed out; unavailable for the rest of this "
+                "run"
+            )
+        return EndpointUnavailable(message)
+
+    def _ensure_reachable(self) -> None:
+        """Fail at once after a timeout or a failed reach check.
+
+        The reach check runs once per run, before the first call.
+        """
+        if self._timed_out is not None:
+            raise EndpointUnavailable(
+                f"{self.name}: unavailable for the rest of this run "
+                f"({self._timed_out})"
+            )
+        if self.reach is None:
+            return
+        if self._reach_verdict is None:
+            if self.credentials is None:
+                verdict = self.reach.run(self.rclone_config)
+            else:
+                with self.credentials.in_use() as config:
+                    verdict = self.reach.run(config)
+            self._reach_verdict = verdict
+            if not verdict.ok:
+                info(
+                    f"{self.name}: not reachable (reach check: "
+                    f"{verdict.reason}); skipped"
+                )
+        if not self._reach_verdict.ok:
+            raise EndpointUnavailable(
+                f"{self.name}: not reachable (reach check: "
+                f"{self._reach_verdict.reason})"
+            )
+
     def _execute(self, command: Sequence[str]) -> subprocess.CompletedProcess:
+        self._ensure_reachable()
         if self.transport is not None:
             result = self._execute_rcd(command)
             if result is not None:
@@ -239,7 +299,7 @@ class RcloneEndpoint(Endpoint):
             outcome = "unreachable; using a command"
             return None
         except rclone_rcd.RcdTimeout as exc:
-            raise EndpointUnavailable(
+            raise self._note_timeout(
                 f"{self.name}: rcd request timed out after "
                 f"{self.timeout} seconds"
             ) from exc
@@ -285,7 +345,7 @@ class RcloneEndpoint(Endpoint):
                 f"{self.name}: command failed (exit status {exc.returncode})"
             ) from exc
         except subprocess.TimeoutExpired as exc:
-            raise EndpointUnavailable(
+            raise self._note_timeout(
                 f"{self.name}: command timed out after {self.timeout} seconds"
             ) from exc
         except (OSError, subprocess.SubprocessError) as exc:

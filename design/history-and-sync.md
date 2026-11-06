@@ -172,7 +172,7 @@ Rules:
   receives a unique `session:kp-access:<token>` identity. Its old fixed
   history record can be retired only through explicit exact-identity
   confirmation after runtime checks.
-- **Decommissioned key drives (proposed, not approved; PLAN item 10).**
+- **Decommissioned key drives (since 0.5.0).**
   Decommissioning a drive is a metadata operation that never needs the
   drive and never touches its contents; erasing is separate. It has two
   independent parts: removing (or ignoring) this machine's udevmon
@@ -196,8 +196,8 @@ Rules:
     `udevmon devices remove` stops the action. Running the command on
     another machine afterwards only removes that machine's device.
   - Without the drive, the only checkable evidence is its record.
-    Refuse when the recorded version is not the current version or one
-    of its ancestors (an unmerged branch would be pruned), while the
+    Refuse when no other copy record holds the drive's recorded version
+    or a descendant of it (its content would be pruned), while the
     drive is attached (detach or final sync first), while pending
     decisions, a `keydisk-up` pending marker, in-flight writes or
     recovery progress reference it, and, unless explicitly overridden,
@@ -209,10 +209,19 @@ Rules:
   - Markers hold identity, generation, time, host and an optional
     display name for audit, never database bytes or credentials, and pin
     no versions. Same publication, deferral and reporting rules as session
-    retirement. A marker lifted by a later enrolment may be dropped by
-    pruning. The reversible semantics need a new state-schema revision;
-    upgrade every client that shares history before publishing the first
-    drive marker.
+    retirement. Markers are kept (an enrolment too: it keeps suppressing
+    copy records older than itself, so a stale store cannot bring back the
+    pre-decommissioning record). Markers merge newest first by
+    (generation, time, host). State is written as schema 3 only while it
+    holds a drive marker, so ordinary history stays readable by older
+    clients; those reject schema 3, so upgrade every client that shares
+    history before publishing the first drive marker.
+  - Exclusion: the engine drops an attached decommissioned drive's
+    endpoint and history store when it is built (from runtime history)
+    and again after loading shared history, before drive history checks,
+    displaced-file recovery or observation. It notifies once per
+    attachment (`decommissioned-notices.json` in the run dir). The drive
+    lease stays until the drive is unplugged.
   - Re-enrolling a drive that still holds `pass.kdbx` and `kp-sync/`
     exercises the unknown-copy path (password needed; an outdated copy is
     overwritten after a backup), not the empty-drive fill; testing that
@@ -386,7 +395,15 @@ that host too.
    a mismatch means it changed in between and restarts the run.
    Otherwise fetch it into `tmp/`. Unreachable endpoints become `missing`,
    are reported according to `on_unavailable` and retried on the next run
-   (no queue).
+   (no queue). Absence is not unreachability only where it is proven: an
+   attached drive whose mount and identity were just checked but which
+   has no database file is `absent` (`EndpointAbsent`) and becomes an
+   install target for the current version, like a missing runtime hub
+   (the drive directory is created; the install uses `RENAME_NOREPLACE`,
+   so a concurrent save is never replaced). A failed install that left
+   no file is skipped like any unwritable drive copy. Other missing files
+   (configured file endpoints, whose mount point may simply be empty)
+   stay unreachable.
 3. **Classify** the hub and every endpoint (see "Endpoint states"). A file
    whose bytes changed but whose content hash (computed when the password is
    cached: entries, groups, fields, attachments, deleted objects, ignoring
