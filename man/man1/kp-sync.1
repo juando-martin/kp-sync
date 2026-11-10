@@ -259,7 +259,7 @@ and
 applications are given the hub path.
 .RE
 .TP
-\fBsync\fR [\fB\-\-dry\-run\fR] [\fB\-\-no\-daemon\fR] [\fB\-\-no\-wait\fR]
+\fBsync\fR [\fB\-\-dry\-run\fR] [\fB\-\-idle\fR] [\fB\-\-no\-daemon\fR] [\fB\-\-no\-wait\fR]
 Probe every configured and attached copy, classify each one against the
 history, and promote or merge as needed. Prints the outcome, the current
 version and the state of each copy:
@@ -295,6 +295,15 @@ Options:
 .B \-\-dry\-run
 Probe and classify copies with fresh endpoint contact, but write no copy
 and no shared history. Use this to see what a real sync would do.
+.TP
+.B \-\-idle
+The idle sync the systemd timer runs. Skipped, without starting the
+daemon, while every cloud is clearly unreachable (its reach check fails
+or its rclone credentials are not published) and an idle sync ran within
+the last eight
+.BR idle_sync_interval s;
+once that long has passed one runs anyway. Unreachable copies do not
+make it fail. Needs the daemon.
 .TP
 .B \-\-no\-daemon
 As the global option: run in this process.
@@ -679,6 +688,23 @@ Avoid issuing other requests at the same time.
 Also remove this profile's menu and autostart entries; they are kept
 otherwise.
 .RE
+.TP
+\fBcompletion install\fR [\fB\-\-alias\fR \fINAME\fR]... [\fB\-\-dry\-run\fR]
+Write Bash completion into bash-completion's per-user directory
+.RI ( $BASH_COMPLETION_USER_DIR /completions,
+else
+.IR $XDG_DATA_HOME /bash-completion/completions,
+by default
+.IR ~/.local/share/bash-completion/completions ):
+kp-sync's argcomplete registration and, for each
+.BR \-\-alias ,
+a file completing that alias of
+.B kp-sync \-\-profile
+.I HOST
+(define the alias itself in
+.IR ~/.bashrc ).
+Unchanged files are left alone. Needs no profile and contacts nothing;
+run it again after upgrading argcomplete.
 .TP
 \fBdoctor\fR [\fB\-\-self\-test\fR]
 Check the installation and print one

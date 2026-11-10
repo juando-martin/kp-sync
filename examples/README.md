@@ -82,8 +82,8 @@ on that machine, and nothing here moves or overwrites a database.
    replaced, never silently overwritten.
 6. Start udevmon (`udevmon service install --now`; if it was running,
    `udevmon reload`, then `udevmon trigger NAME` for a drive that is
-   already plugged in), add `alias kps='kp-sync --profile HOST'` and the
-   Bash completion (README).
+   already plugged in), add `alias kps='kp-sync --profile HOST'` to
+   `~/.bashrc` and run `kp-sync completion install --alias kps`.
 
 ## Starting a new database or adopting an existing one
 

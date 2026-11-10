@@ -46,6 +46,7 @@ COMMANDS = (
     ("keepassxc-disconnect", "Remove local KeePassXC pairing"),
     ("status", "Show synchronization status"),
     ("doctor", "Check the installation"),
+    ("completion", "Install Bash completion for kp-sync and aliases"),
 )
 
 
@@ -123,6 +124,13 @@ def _build_parser() -> argparse.ArgumentParser:
                 "--dry-run",
                 action="store_true",
                 help="classify copies without writing",
+            )
+            command_parser.add_argument(
+                "--idle",
+                action="store_true",
+                help="the timer's idle sync: skipped while the cloud is "
+                "clearly unreachable, and unreachable copies are not an "
+                "error",
             )
         elif name == "status":
             command_parser.add_argument(
@@ -259,6 +267,23 @@ def _build_parser() -> argparse.ArgumentParser:
                 "--dry-run",
                 action="store_true",
                 help="show what would be done, change nothing",
+            )
+        elif name == "completion":
+            command_parser.add_argument(
+                "action", choices=("install",), help="what to do"
+            )
+            command_parser.add_argument(
+                "--alias",
+                action="append",
+                default=[],
+                metavar="NAME",
+                help="also complete this alias of kp-sync --profile HOST "
+                "(repeatable), e.g. kps",
+            )
+            command_parser.add_argument(
+                "--dry-run",
+                action="store_true",
+                help="show what would be written, change nothing",
             )
         elif name == "drive-retire":
             command_parser.add_argument(
@@ -450,6 +475,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _dispatch(parser: argparse.ArgumentParser, args) -> int:
+    if args.command == "completion":
+        from kp_sync.completion import install
+
+        try:
+            return install(aliases=args.alias, dry_run=args.dry_run)
+        except (OSError, ValueError) as exc:
+            error(str(exc))
+            return 1
     if args.command == "keepassxc-disconnect":
         try:
             from kp_sync.keepassxc import disconnect
@@ -569,6 +602,16 @@ def _dispatch(parser: argparse.ArgumentParser, args) -> int:
                 return 0 if all(check.ok for check in checks) else 1
             from kp_sync.daemon.client import Client
 
+            idle = args.command == "sync" and getattr(args, "idle", False)
+            if idle:
+                from kp_sync import idle as idle_sync
+                from kp_sync.log import info
+
+                run_directory = ensure_run_dir(config.profile)
+                skipped = idle_sync.skip_reason(config, run_directory)
+                if skipped is not None:
+                    info(skipped)
+                    return 0
             fields = {}
             for name in ("mountpoint", "drive_id", "app", "dry_run"):
                 value = getattr(args, name, None)
@@ -601,8 +644,12 @@ def _dispatch(parser: argparse.ArgumentParser, args) -> int:
                 **fields,
             )
             _print_result(result, daemon=True)
+            if idle:
+                idle_sync.record_run(run_directory)
             if result.get("pending"):
                 return 3
+            if idle:
+                return 0  # unreachable copies: retried by the next run
             if result.get("missing") or result.get("action") == "unavailable":
                 return 4
             return 0
@@ -783,6 +830,9 @@ def _dispatch(parser: argparse.ArgumentParser, args) -> int:
         ) as exc:
             error(str(exc))
             return 1
+    if args.command == "sync" and getattr(args, "idle", False):
+        error("--idle runs through the daemon; drop --no-daemon")
+        return 2
     if args.command in {"sync", "status", "resolve", "restore"}:
         try:
             config = load_config(args.config, profile=args.profile)

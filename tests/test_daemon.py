@@ -317,6 +317,40 @@ class DaemonTest(unittest.TestCase):
             controller.sync()
             self.assertEqual(notify.call_count, 2)
 
+    def test_engine_notices_reach_the_desktop_logged_once(self):
+        message = "Key drive S:U is decommissioned in the shared history"
+
+        class Engine:
+            def __init__(self, ui):
+                self.ui = ui
+
+            def sync(self, *, dry_run=False):
+                self.ui.notify(message)
+                return SyncResult(
+                    current=None, action="unchanged", classifications={}
+                )
+
+        controller = self.controller()
+        controller.engine_factory = Engine
+        for enabled in (True, False):
+            with self.subTest(notify=enabled):
+                self.config.ui["notify"] = enabled
+                with (
+                    patch("kp_sync.daemon.apps.notify_user") as notify,
+                    patch("kp_sync.daemon.server.info") as log_info,
+                ):
+                    controller.sync({"ui": "none"})
+                if enabled:
+                    notify.assert_called_once_with(message)
+                else:
+                    notify.assert_not_called()
+                self.assertEqual(
+                    [c.args for c in log_info.call_args_list].count(
+                        (message,)
+                    ),
+                    1,
+                )
+
     def test_notifications_respect_disabled_setting_and_log_delivery_failure(
         self,
     ):

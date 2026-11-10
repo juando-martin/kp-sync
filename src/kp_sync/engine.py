@@ -54,7 +54,7 @@ from kp_sync.history import (
 )
 from kp_sync.kdbx import KdbxError, inspect_kdbx
 from kp_sync.lock import acquire_lock, file_lock
-from kp_sync.log import debug, debug_enabled, error
+from kp_sync.log import debug, debug_enabled, error, info
 from kp_sync.merge import (
     MergeCredentialError,
     MergeError,
@@ -2677,7 +2677,8 @@ class SyncEngine:
                     lambda: retrieve(self.config, messages.append)
                 )
                 for message in messages:
-                    self.ui.notify(message)
+                    # Logged only: the question shows the same text.
+                    info(message)
                     self.ui.choose(
                         message, ("Continue with the password fallback",)
                     )

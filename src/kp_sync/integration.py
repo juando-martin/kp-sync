@@ -114,7 +114,7 @@ def render_units(
         "kp-sync-sync@%i.service", config.daemon["idle_sync_interval"]
     )
     generated["kp-sync-sync@.service"] = _sync_service(
-        f"{executable} --profile %i sync"
+        f"{executable} --profile %i sync --idle"
     )
 
     names = unit_names(config)
@@ -136,7 +136,7 @@ def render_units(
         names["sync_service"], config.daemon["idle_sync_interval"]
     )
     generated[names["sync_service"]] = _sync_service(
-        f"{executable}{profile_arg} sync"
+        f"{executable}{profile_arg} sync --idle"
     )
     return generated
 

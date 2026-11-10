@@ -203,11 +203,17 @@ class RemoteUI(UI):
 class UnlockedUI(UI):
     """Call a local UI backend without holding the sync gate."""
 
-    def __init__(self, backend, gate, progress=None):
-        """Wrap a backend and pause progress while asking."""
+    def __init__(self, backend, gate, progress=None, notifier=None):
+        """Wrap a backend and pause progress while asking.
+
+        ``notifier`` (the daemon's log-and-desktop notification) takes
+        the engine's ``notify`` messages: no local backend shows them,
+        and nobody watches the daemon's log.
+        """
         self.backend = backend
         self.gate = gate
         self.progress = progress
+        self.notifier = notifier
 
     def _call(self, method, *args, **kwargs):
         if self.progress is not None:
@@ -245,6 +251,9 @@ class UnlockedUI(UI):
         return self._call("review", conflicts)
 
     def notify(self, message):
+        if self.notifier is not None:
+            # Bounded and asks nothing, so the gate stays held.
+            return self.notifier(message)
         return self._call("notify", message)
 
 
@@ -506,6 +515,7 @@ class Controller:
             ),
             self.sync_gate,
             progress,
+            notifier=self._notify,
         )
 
     def sync(self, request=None, connection=None, *, queued=None):

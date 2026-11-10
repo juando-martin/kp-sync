@@ -144,6 +144,24 @@ command is a short client that sends it a request over a Unix socket.
   lease. It is on by default for a persistent hub (so the second laptop
   has the latest content when it later goes offline) and off for a hub in
   `$XDG_RUNTIME_DIR`, which usually does not exist when nothing uses it.
+  *Idle sync while offline* (since 0.5.1; PLAN "Proposed improvements"
+  9). The timer runs `kp-sync sync --idle`. Before contacting the
+  daemon (so an offline run neither starts it nor queues its startup
+  sync), an idle run checks every enabled `rclone` endpoint locally:
+  its provider credentials must be published (`rclone_config`) and its
+  cloud reach check must pass. When every cloud fails and an idle sync
+  ran within the last eight `idle_sync_interval`s (`idle-sync.json` in
+  the run directory, written by each idle sync that ran), the run is
+  skipped with one `INFO` line and exit status 0. A cloud the check
+  cannot judge (`reach_check = false`, no derivable server) counts as
+  reachable, so the sync runs; so does a profile without a cloud. One
+  idle sync still runs every eight intervals while offline, so daemon
+  syncs keep checking `cloud_warning_hours`; when the cloud comes back,
+  the next hourly check passes and the normal interval resumes at
+  once. An idle sync that ran exits 0 even with unreachable copies
+  (pending decisions still exit 3), so the timer's unit does not fail
+  every hour offline. Syncs triggered by saves, drives, sessions,
+  applications or the user never use `--idle`.
 - **Serialisation**: the daemon runs one sync at a time. Triggers that
   arrive during a sync are coalesced into one more run afterwards, so
   nothing is lost and no caller is told "busy". Waiting for the user never

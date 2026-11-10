@@ -190,7 +190,9 @@ implementation. Each needs its design decisions recorded in the owning
    configuration, update the integrations (found by `doctor`'s
    integration check, including kp-access's `db-path`), and run the
    first sync. Rare. Medium.
-5. **`kp-sync completion install`.** Write the argcomplete registration
+5. **`kp-sync completion install`.** *Released in 0.5.1: `completion.py`, `--alias NAME`
+   (repeatable), `--dry-run`; `tests/test_completion.py` (a real Bash
+   run checks the alias expansion).* Write the argcomplete registration
    and the alias completion (`examples/bash-completion/kps`) into
    `~/.local/share/bash-completion/completions/`. Small.
 6. **Pendrive integrity check.** *Released in 0.4.0:
@@ -216,7 +218,15 @@ implementation. Each needs its design decisions recorded in the owning
    Needs a protocol field and a per-request log level in the daemon;
    relaying the lines to the client's terminal is a further option.
    Medium.
-9. **Back off the idle sync while offline.** While the cloud is
+9. **Back off the idle sync while offline.** *Released in 0.5.1: `idle.py`, `sync --idle`
+   in the timer's unit; design "Idle sync while offline" in
+   `design/lifecycle.md`; `tests/test_idle.py`. Instead of a growing
+   delay, each idle run checks the clouds locally (reach check,
+   published credentials) and skips while all fail, running anyway
+   every eight intervals. Live `kp-test` in an offline network
+   namespace: the first idle run synced, the second was skipped in
+   0.15 s without a daemon request; online the check runs the sync.*
+   While the cloud is
    unreachable, space out (or skip) the hourly timer's runs instead of
    failing every hour, and return to the normal interval once it is
    reached again. Mostly a quieter journal; it should not delay syncs

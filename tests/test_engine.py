@@ -1555,6 +1555,37 @@ class EngineTest(unittest.TestCase):
             )
             get.assert_not_called()
 
+    def test_keepassxc_lookup_messages_are_asked_not_also_notified(self):
+        key_file, _ = self._real_database()
+        config = replace(self.config, key_file=key_file)
+        config.credentials["keepassxc"] = {
+            "url": "https://kp-sync-test.invalid"
+        }
+        ui = FakeUI(passwords=("test-password",))
+        engine = SyncEngine(
+            config,
+            (),
+            run_directory=self.run_dir,
+            credentials=CredentialProvider(config),
+            ui=ui,
+        )
+        engine._credential_probes = (self.hub_path,)
+        message = "KeePassXC is locked"
+
+        def retrieve(config, report):
+            report(message)
+            return None
+
+        with (
+            patch("kp_sync.keepassxc.retrieve", side_effect=retrieve),
+            patch.object(ui, "notify") as notify,
+            patch.object(ui, "choose", wraps=ui.choose) as choose,
+        ):
+            engine._request_credentials()
+        # The question shows it; a desktop notice too would repeat it.
+        self.assertEqual(choose.call_args.args[0], message)
+        notify.assert_not_called()
+
     def test_optional_content_hashing_never_queries_keepassxc(self):
         self.config.credentials["keepassxc"] = {
             "url": "https://kp-sync-test.invalid"

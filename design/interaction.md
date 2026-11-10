@@ -162,7 +162,13 @@ send a request to the daemon, and in time-limited contexts return at once
   already running only cause a sync.
 - **Notifications and progress**: `notify-send` and the zenity progress
   dialog (`progress`) are shown by the daemon, so they also appear for
-  requests from udev and kp-access.
+  requests from udev and kp-access. The engine's own notices (a
+  decommissioned or damaged key drive, a stale-cache save, a rejected
+  password) reach the desktop the same way in daemon syncs without a
+  waiting terminal client, logged once, while `[ui] notify` is true
+  (since 0.5.1; before, they were only logged). A waiting terminal
+  client prints them instead; a notice repeated by a question that
+  follows (browser lookup messages) is only logged.
   With `[ui] progress = true`, desktop (`auto`/`gui`) user-requested and
   event-triggered syncs show a
   non-cancelling pulsating waiting dialog after two seconds; fast syncs

@@ -3,6 +3,31 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Added
+
+- `kp-sync completion install [--alias NAME]` writes Bash completion for
+  kp-sync and for aliases such as `kps` into bash-completion's per-user
+  directory; no profile needed.
+
+### Changed
+
+- The hourly idle sync (`kp-sync sync --idle`, run by the timer) is
+  skipped while every cloud is clearly unreachable (its reach check
+  fails or its credentials are not published), without starting the
+  daemon; one still runs every eight intervals. Idle syncs no longer
+  fail because a copy is unreachable, so the timer's unit stops failing
+  every hour offline. Reinstall the units (`kp-sync service install
+  daemon`, done by `tools/releases.py install`) to get `--idle`.
+
+### Fixed
+
+- Notices from a sync run by the daemon (a decommissioned or damaged
+  key drive, a stale-cache save, a rejected password) now appear as
+  desktop notifications while `[ui] notify` is true; they were only
+  logged.
+
 ## 0.5.0 (2026-11-06)
 
 ### Added
