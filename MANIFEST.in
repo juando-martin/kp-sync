@@ -3,3 +3,7 @@ recursive-include design *.md
 recursive-include docs *.rst *.py *.css
 recursive-include tools *.py
 prune docs/_build
+recursive-include examples *
+recursive-include man *
+recursive-include tests *.py *.xml
+global-exclude __pycache__ *.py[cod]

@@ -8,17 +8,28 @@ observed and synchronized.
 
 ## Install and configure
 
-Install the package in the Python environment that will run it:
+kp-sync runs on Linux with Python 3.11 or later. Install it from PyPI,
+preferably with pipx (or `python -m pip install kp-sync` in a virtual
+environment); add the `keepassxc` extra for optional password retrieval
+from a running KeePassXC:
 
 ```sh
-python -m pip install .
+pipx install kp-sync            # or: pipx install 'kp-sync[keepassxc]'
 ```
+
+It drives existing tools, which the system provides: `keepassxc-cli`
+(verifying and merging), `rclone` (cloud copies), `zenity` or `kdialog`
+(desktop questions and progress), and for remote sessions `sshfs`,
+`sftp-server` and `bwrap`. `kp-sync doctor` uses the `keyctl` command
+from keyutils. [udevmon](https://pypi.org/project/udevmon/) triggers
+synchronization when a key drive is plugged in. Full documentation:
+<https://kp-sync.readthedocs.io/>.
 
 Create `~/.config/kp-sync/config.toml`, or use `--profile NAME` to load
 `~/.config/kp-sync/NAME.toml`. See `man 5 kp-sync-config` for all options.
 Ready-made profiles (cloud, Dropbox, pendrives, folders, the rcd
 transport, every option) and udevmon actions are in
-[examples/](examples/README.md).
+[examples/](https://github.com/juando-martin/kp-sync/blob/main/examples/README.md).
 Install and check the user-level daemon integration with:
 
 ```sh
@@ -219,12 +230,12 @@ bash-completion's per-user directory
 loads on demand. `--alias` is repeatable and optional; `--dry-run` shows
 what would change. It needs no profile and contacts nothing. Run it
 again after upgrading `argcomplete`; the alias file is
-[examples/bash-completion/kps](examples/bash-completion/kps) with the
+[examples/bash-completion/kps](https://github.com/juando-martin/kp-sync/blob/main/examples/bash-completion/kps) with the
 alias name filled in.
 
 By hand, the same files are
 `register-python-argcomplete kp-sync` (the helper lives next to
-`kp-sync`, for example in `~/.venvs/tools/bin`, which may not be on
+`kp-sync` in its environment's `bin` directory, which may not be on
 `PATH`) and a copy of the example. Alternatively, add the applicable
 registration command to your shell startup file:
 
@@ -274,7 +285,7 @@ kp-sync is free software: you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
 Free Software Foundation, either version 3 of the License, or (at your
 option) any later version. It is distributed in the hope that it will be
-useful, but WITHOUT ANY WARRANTY; see [LICENSE](LICENSE) for details.
+useful, but WITHOUT ANY WARRANTY; see [LICENSE](https://github.com/juando-martin/kp-sync/blob/main/LICENSE) for details.
 The same license applies to every earlier version of kp-sync, including
 all tagged releases, each of which contains the license file.
 
