@@ -8,9 +8,13 @@ hold the details; design decisions live in the `design/` chapters.
 ### Changed
 
 - kp-sync is licensed under the GNU General Public License, version 3
-  or later (`LICENSE`); every source file carries an SPDX header, and
-  the package metadata declares `GPL-3.0-or-later`. Building it needs
-  setuptools 77 or later.
+  or later (`LICENSE`), and so are all earlier versions: the license
+  file is part of every version in the repository's history.
+- All source files now have a license header: every Python file and
+  script starts with `SPDX-License-Identifier: GPL-3.0-or-later` and the
+  copyright line, and `tests/test_license.py` keeps new files compliant.
+- The package metadata declares `GPL-3.0-or-later`; building kp-sync
+  needs setuptools 77 or later.
 
 ## 0.5.1 (2026-11-10)
 

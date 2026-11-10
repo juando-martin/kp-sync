@@ -275,5 +275,7 @@ under the terms of the GNU General Public License as published by the
 Free Software Foundation, either version 3 of the License, or (at your
 option) any later version. It is distributed in the hope that it will be
 useful, but WITHOUT ANY WARRANTY; see [LICENSE](LICENSE) for details.
+The same license applies to every earlier version of kp-sync, including
+all tagged releases, each of which contains the license file.
 
 Copyright (C) 2026 Juan Domingo Martín.
