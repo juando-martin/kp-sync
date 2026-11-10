@@ -110,7 +110,7 @@
   Black and pycodestyle are optional development tools, with E203/W503
   exceptions for Black compatibility. Formatting must preserve behavior.
   Maintained sources include src, tests, examples, tools and docs Python;
-  throwaway spikes and archived bundles are outside this formatting scope.
+  generated files are outside this formatting scope.
 - **HTML documentation:** `docs/` uses Sphinx's classic theme, autodoc,
   Napoleon and viewcode; `tools/docs.py build|serve` makes a fresh, nitpicky
   build that fails on warnings. Preview is loopback-only and stops on Ctrl-C.

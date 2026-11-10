@@ -32,8 +32,7 @@ An autodoc entry is not a promise of API stability.
 Keep Python code at 79 columns, docstrings and comments at 72. Prefer
 parenthesized continuation and adjacent string literals to backslashes.
 The maintained scope is ``src/``, ``tests/``, ``examples/``, ``tools/``,
-and Python documentation configuration. ``spikes/`` are historical throwaway
-experiments, not maintained sources.
+and Python documentation configuration.
 
 Run the configured format and style checks::
 
