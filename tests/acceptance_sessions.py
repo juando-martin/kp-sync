@@ -2,6 +2,8 @@
 
 Uses only the user-provided kp-test profile. Run without other sessions.
 Does not restart services or cache credentials in the shared keyring.
+The remote test host comes from ``KP_SYNC_TEST_HOST`` (kept out of the
+repository; see the developer's local notes).
 """
 
 import getpass
@@ -41,7 +43,7 @@ from kp_sync.sessions.session import (
 )
 from kp_sync.ui.none import NoneUI
 
-HOST = "remote.example"
+HOST = os.environ.get("KP_SYNC_TEST_HOST", "")
 MOUNT = "~/kp-test"
 PORT = 2223
 KEY_TAG = "kp-test-acceptance"
@@ -124,6 +126,11 @@ def sync(config, credentials, *, record=None, store=None):
 
 
 def run():
+    if not HOST:
+        raise RuntimeError(
+            "set KP_SYNC_TEST_HOST to the remote test host (an SSH host "
+            "name with keepassxc-cli and sshfs)"
+        )
     config = load_config(profile="kp-test")
     runtime = ensure_run_dir(config.profile)
     if (

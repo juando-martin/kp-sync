@@ -6,3 +6,5 @@ __pycache__/
 .coverage
 .pytest_cache/
 /docs/_build/
+# Local, never published: work hosts and private notes.
+CLAUDE.local.md
