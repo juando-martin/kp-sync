@@ -8,3 +8,4 @@ __pycache__/
 /docs/_build/
 # Local, never published: work hosts and private notes.
 CLAUDE.local.md
+NEXT_STEPS.md

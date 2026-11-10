@@ -7,8 +7,8 @@ Keep only current status, unfinished work and lessons with continuing value.
 
 ## Current status
 
-Release `v0.5.1` (2026-11-10) is current; `beta` runs it and `alpha`
-runs 0.5.0 (see NEXT_STEPS for deployment). Phases 0-6, 8 and 9 of
+Release `v0.5.1` (2026-11-10) is current, deployed on the owner's two
+laptops (`alpha`, the main one, and `beta`). Phases 0-6, 8 and 9 of
 "Implementation phases" in `design/development.md` are implemented,
 with the later post-release work: maintenance commands (`cleanup`,
 `repair-history`, `service`), cold offline pendrive startup, session

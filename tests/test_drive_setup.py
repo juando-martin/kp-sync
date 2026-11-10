@@ -176,7 +176,9 @@ class DriveSetupTest(unittest.TestCase):
             (up, "keepass-up-alpha"),
             (down, "keepass-down-alpha"),
         ):
-            self.assertEqual(action[action.index("--tag") + 1], "keepass-alpha")
+            self.assertEqual(
+                action[action.index("--tag") + 1], "keepass-alpha"
+            )
             self.assertEqual(action[action.index("--name") + 1], name)
         self.assertEqual(up[up.index("--mode") + 1], "main")
         self.assertTrue(

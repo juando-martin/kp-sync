@@ -429,7 +429,9 @@ class TestReportTest(unittest.TestCase):
             fail = False
             missing = []
             self.assertTrue(
-                releases.test("v1.2.4", report=report, profile="alpha", run=run)
+                releases.test(
+                    "v1.2.4", report=report, profile="alpha", run=run
+                )
             )
             text = report.read_text()
             self.assertIn("## Full suite: OK", text)
@@ -437,7 +439,9 @@ class TestReportTest(unittest.TestCase):
             self.assertIn("**Result: PASS**", text)
             fail = True
             self.assertFalse(
-                releases.test("v1.2.4", report=report, profile="alpha", run=run)
+                releases.test(
+                    "v1.2.4", report=report, profile="alpha", run=run
+                )
             )
             text = report.read_text()
             self.assertIn("## pycodestyle: FAILED", text)
@@ -446,7 +450,9 @@ class TestReportTest(unittest.TestCase):
             states = iter(["MainPID=1", "MainPID=1"])
             fail, missing = False, ["linux-keyctl"]
             self.assertFalse(
-                releases.test("v1.2.4", report=report, profile="alpha", run=run)
+                releases.test(
+                    "v1.2.4", report=report, profile="alpha", run=run
+                )
             )
             text = report.read_text()
             self.assertIn("## Dependencies: MISSING", text)

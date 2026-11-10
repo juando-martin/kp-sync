@@ -1,4 +1,4 @@
-include .pycodestyle DESIGN.md PLAN.md NEXT_STEPS.md CHANGES.md
+include .pycodestyle DESIGN.md PLAN.md CHANGES.md
 recursive-include design *.md
 recursive-include docs *.rst *.py *.css
 recursive-include tools *.py

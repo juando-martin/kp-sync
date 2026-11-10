@@ -5,8 +5,8 @@ architecture and safety design. Start here, then read the chapters relevant
 to the task. Each decision has one authoritative home; other chapters refer
 to it rather than duplicating its rules.
 
-`PLAN.md` tracks current implementation and acceptance, and `NEXT_STEPS.md`
-records the current handoff and deployment boundaries. Superseded work
+`PLAN.md` tracks current implementation and acceptance; a developer's
+deployment notes stay outside the repository. Superseded work
 descriptions remain in Git history; retain only lessons with continuing
 value, not parallel narrative archives. Design text is not proof that
 a feature is implemented: explicit planned decisions, including disposable
@@ -65,8 +65,8 @@ This is a navigation aid, not a second specification of the rules.
 - Put each new decision in its owning chapter and link to it elsewhere.
 - Keep this index and contributor instructions consistent when moving or
   adding sections; remove resolved questions from Open points.
-- Keep implementation progress and acceptance evidence in `PLAN.md` and
-  `NEXT_STEPS.md`. Update those when implementing a planned decision.
+- Keep implementation progress and acceptance evidence in `PLAN.md`.
+  Update it when implementing a planned decision.
 - Structural moves should preserve section wording; substantive design
   revisions should be reviewed separately.
 
