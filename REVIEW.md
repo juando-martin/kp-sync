@@ -72,6 +72,26 @@ backups; they remain tied to recovery markers in runtime storage.
 `HistoryMaxItems=0` and `HistoryMaxSize=0` mean no entry history, matching
 KeePass semantics.
 
-Remaining acceptance gaps belong in PLAN. Open code-review findings live in
-[REVIEW_FINDINGS.md](REVIEW_FINDINGS.md) until fixed or rejected; keep this
-file free of current defects and resolved historical findings.
+Remaining acceptance gaps belong in PLAN.
+
+## Open findings
+
+None. Add a code-review finding here (most important first, with
+**Confirmed** if reproduced or traced end to end, **Plausible** if it
+needs a timing window or an uncommon configuration) and remove it when
+it is fixed (the commit records how) or rejected (record why in the
+owning design chapter if it is a design decision). Durable lessons go in
+the sections above.
+
+The last review (`beta`, 2026-11-03, at `v0.2.0`) produced F1–F11,
+all fixed in 0.2.1 and 0.3.0. It read closely the file and drive
+endpoints, the engine's observation, write and commit path, baseline
+publication, `cleanup.py`, `services.py`, short status hashes, the
+kp-access bridge and operations, session `authorized_keys` editing and
+`sftp-serve`, credential caching, the rclone endpoint, `drive_sync.py`,
+`rclone_credentials.py` and daemon activation controls, and found
+nothing further there. Not yet reviewed in detail: the rest of
+`daemon/server.py`, `merge.py`, `sessions/session.py`, `config.py`,
+`integration.py`, the UI modules, and everything added since 0.3.0
+(`drive_setup.py`, `drive_retire.py`, `reach.py`, `idle.py`,
+`completion.py`).

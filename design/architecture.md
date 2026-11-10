@@ -13,6 +13,12 @@ Status: design only. Implementation is a later phase.
 
 ## Goals
 
+The owner's original request (the former `info.txt`, in Git history)
+described the setting these goals answer: one KeePass database, used
+mostly with KeePassXC, changes rarely but can change in two places at
+once (for example over sshfs and on the laptop), and the laptop is where
+it is handled.
+
 - Detect which copies of the database changed since the last sync.
 - Changed in exactly one place: promote that copy to all other locations.
 - Changed in several places: merge (password and key file are requested).
