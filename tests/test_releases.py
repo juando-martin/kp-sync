@@ -187,6 +187,12 @@ class ReleaseRepoTest(unittest.TestCase):
             releases.export("v9.9.9", self.repo)
 
 
+PYPROJECT = (
+    '[project]\nname = "kp-sync"\n'
+    'dependencies = ["argcomplete>=3.0", "linux-keyctl"]\n'
+)
+
+
 class InstallTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(
@@ -197,6 +203,11 @@ class InstallTest(unittest.TestCase):
         self.calls = []
         self.probes = []
         self.exported = []
+        # Dependency handling, recorded apart from the main commands.
+        self.missing = []
+        self.dependency_installs = []
+        self.dependency_status = 0
+        self.check_output = ""
 
     def fake_run(self, version="kp-sync 1.2.4", setuptools=True):
         def run(argv, **kwargs):
@@ -204,6 +215,20 @@ class InstallTest(unittest.TestCase):
                 self.probes.append(argv)
                 status = 0 if setuptools else 1
                 return subprocess.CompletedProcess(argv, status, "", "")
+            if argv[1] == "-c":  # which dependencies are missing
+                found = "\n".join(n for n in argv[3:] if n in self.missing)
+                return subprocess.CompletedProcess(argv, 0, found, "")
+            if argv[1:4] == ["-m", "pip", "install"] and (
+                "--no-deps" not in argv
+            ):
+                self.dependency_installs.append(argv)
+                return subprocess.CompletedProcess(
+                    argv, self.dependency_status, "", ""
+                )
+            if argv[1:4] == ["-m", "pip", "check"]:
+                return subprocess.CompletedProcess(
+                    argv, 1 if self.check_output else 0, self.check_output, ""
+                )
             self.calls.append(argv)
             stdout = version + "\n" if "--version" in argv else ""
             return subprocess.CompletedProcess(argv, 0, stdout, "")
@@ -214,6 +239,7 @@ class InstallTest(unittest.TestCase):
         def export(tag, repo, run):
             directory = self.home / "export"
             directory.mkdir()
+            (directory / "pyproject.toml").write_text(PYPROJECT)
             self.exported.append(directory)
             return directory
 
@@ -285,6 +311,7 @@ class InstallTest(unittest.TestCase):
         original = releases.export
         releases.export = lambda tag, repo, run: self.home / "export"
         (self.home / "export").mkdir()
+        (self.home / "export" / "pyproject.toml").write_text(PYPROJECT)
         self.addCleanup(setattr, releases, "export", original)
         releases.install(
             "v1.2.4",
@@ -313,6 +340,55 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
         self.assertIn("service enable daemon --now", done[-1])
 
+    def test_install_fetches_only_missing_dependencies_first(self):
+        self.installed_units(desktop=False)
+        self.missing = ["linux-keyctl"]
+        done = self.install()
+        # Plain pip install of the requirements, before kp-sync:
+        # satisfied ones stay as they are, missing ones are fetched.
+        self.assertEqual(
+            self.dependency_installs[0][-2:],
+            ["argcomplete>=3.0", "linux-keyctl"],
+        )
+        self.assertNotIn("--upgrade", self.dependency_installs[0])
+        self.assertIn("--no-deps", self.calls[0])
+        self.assertIn("installed dependency linux-keyctl", done)
+
+    def test_install_stops_before_kp_sync_when_dependencies_fail(self):
+        self.installed_units(desktop=False)
+        self.missing = ["linux-keyctl"]
+        self.dependency_status = 1
+        with self.assertRaisesRegex(
+            releases.ReleaseError, "linux-keyctl.*nothing was changed"
+        ):
+            self.install()
+        self.assertEqual(self.calls, [])  # kp-sync never installed
+        self.assertFalse(self.exported[0].exists())
+
+    def test_install_does_not_restart_with_broken_requirements(self):
+        self.installed_units(desktop=False)
+        self.check_output = (
+            "types-flask 1.0 requires flask, which is not installed.\n"
+            "kp-sync 1.2.4 requires linux-keyctl, which is not installed.\n"
+        )
+        with self.assertRaisesRegex(
+            releases.ReleaseError, "requires linux-keyctl.*not restarted"
+        ):
+            self.install()
+        self.assertEqual(len(self.calls), 1)  # only the kp-sync install
+        # Unrelated problems elsewhere in the environment do not block.
+        self.calls.clear()
+        self.check_output = (
+            "types-flask 1.0 requires flask, which is not installed.\n"
+        )
+        (
+            (self.home / "export").rmdir()
+            if (self.home / "export").exists()
+            else None
+        )
+        self.install()
+        self.assertEqual(self.calls[-1][-2:], ["restart", "daemon"])
+
     def test_install_stops_on_a_version_mismatch(self):
         self.installed_units(desktop=False)
         with self.assertRaisesRegex(releases.ReleaseError, "expected"):
@@ -333,12 +409,17 @@ class TestReportTest(unittest.TestCase):
                     return subprocess.CompletedProcess(
                         argv, 0, next(states), ""
                     )
+                if argv[1] == "-c" and "metadata" in argv[2]:
+                    return subprocess.CompletedProcess(
+                        argv, 0, "\n".join(missing), ""
+                    )
                 status = 1 if "pycodestyle" in argv and fail else 0
                 return subprocess.CompletedProcess(argv, status, "Ran 5\n", "")
 
             def export(tag, repo, run):
                 directory = root / f"export-{len(list(root.iterdir()))}"
                 directory.mkdir()
+                (directory / "pyproject.toml").write_text(PYPROJECT)
                 return directory
 
             original = releases.export
@@ -346,6 +427,7 @@ class TestReportTest(unittest.TestCase):
             self.addCleanup(setattr, releases, "export", original)
             report = root / "report.md"
             fail = False
+            missing = []
             self.assertTrue(
                 releases.test("v1.2.4", report=report, profile="alpha", run=run)
             )
@@ -361,6 +443,14 @@ class TestReportTest(unittest.TestCase):
             self.assertIn("## pycodestyle: FAILED", text)
             self.assertIn("## Daemon after: CHANGED", text)
             self.assertIn("**Result: FAIL**", text)
+            states = iter(["MainPID=1", "MainPID=1"])
+            fail, missing = False, ["linux-keyctl"]
+            self.assertFalse(
+                releases.test("v1.2.4", report=report, profile="alpha", run=run)
+            )
+            text = report.read_text()
+            self.assertIn("## Dependencies: MISSING", text)
+            self.assertIn("pip install 'linux-keyctl'", text)
 
 
 if __name__ == "__main__":

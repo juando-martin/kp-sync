@@ -37,6 +37,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -183,6 +184,88 @@ def export(tag: str, repo: Path, *, run=subprocess.run) -> Path:
     return directory
 
 
+def _requirements(directory: Path) -> list[str]:
+    """The runtime dependencies the release declares in pyproject."""
+    text = (directory / "pyproject.toml").read_text(encoding="utf-8")
+    return list(tomllib.loads(text)["project"].get("dependencies", []))
+
+
+def _missing(python: str, requirements: list[str], run) -> list[str]:
+    """Requirements whose distribution ``python`` lacks entirely."""
+    names = [
+        re.match(r"[A-Za-z0-9._-]+", item).group(0) for item in requirements
+    ]
+    script = (
+        "import sys\n"
+        "from importlib import metadata\n"
+        "for name in sys.argv[1:]:\n"
+        "    try:\n"
+        "        metadata.distribution(name)\n"
+        "    except metadata.PackageNotFoundError:\n"
+        "        print(name)\n"
+    )
+    result = run(
+        [python, "-c", script, *names], capture_output=True, text=True
+    )
+    missing = set(result.stdout.split())
+    return [item for item, name in zip(requirements, names) if name in missing]
+
+
+def _ensure_requirements(directory: Path, python: str, run) -> list[str]:
+    """Install the release's missing dependencies; never upgrade others.
+
+    Plain ``pip install`` of the declared requirements: satisfied ones
+    are left as they are (no network needed), missing or too old ones
+    are fetched. Returns the requirements that were missing.
+
+    Raises:
+        ReleaseError: If pip cannot install them; kp-sync is untouched.
+    """
+    requirements = _requirements(directory)
+    if not requirements:
+        return []
+    missing = _missing(python, requirements, run)
+    result = run(
+        [
+            python,
+            "-m",
+            "pip",
+            "install",
+            "-q",
+            "--no-input",
+            "--disable-pip-version-check",
+            *requirements,
+        ]
+    )
+    if result.returncode != 0:
+        raise ReleaseError(
+            "could not install the release's dependencies ("
+            + ", ".join(missing or requirements)
+            + f"); install them with '{python} -m pip install "
+            + " ".join(f"'{item}'" for item in (missing or requirements))
+            + "' and retry; nothing was changed"
+        )
+    return missing
+
+
+def _check_installed(python: str, run) -> None:
+    """``pip check`` must report nothing broken for kp-sync itself."""
+    result = run(
+        [python, "-m", "pip", "check"], capture_output=True, text=True
+    )
+    problems = [
+        line
+        for line in (result.stdout or "").splitlines()
+        if line.lower().startswith("kp-sync ")
+    ]
+    if problems:
+        raise ReleaseError(
+            "kp-sync was installed but its requirements are broken ("
+            + "; ".join(problems)
+            + "); the daemon was not restarted"
+        )
+
+
 def _unit_name(profile: str) -> str:
     # An empty profile is the default one (kp-sync.service).
     return f"kp-sync@{profile}.service" if profile else "kp-sync.service"
@@ -216,6 +299,10 @@ def install(
     )
     directory = export(tag, repo, run=run)
     try:
+        # Dependencies first, so a failure leaves kp-sync untouched; the
+        # release itself stays --no-deps, which never upgrades others.
+        for item in _ensure_requirements(directory, python, run):
+            done.append(f"installed dependency {item}")
         result = run(
             [
                 python,
@@ -232,6 +319,7 @@ def install(
             raise ReleaseError("pip install failed")
     finally:
         shutil.rmtree(directory, ignore_errors=True)
+    _check_installed(python, run)
     program = Path(python).parent / "kp-sync"
     link = home / ".local" / "bin" / "kp-sync"
     command = str(link if link.exists() else program)
@@ -325,6 +413,22 @@ def test(
             first = _output(argv, run).splitlines()
             lines.append(first[0] if first else "(none)")
         lines += ["```", "", "## Daemon before", "```", before, "```", ""]
+        missing = _missing(python, _requirements(directory), run)
+        if missing:
+            ok = False
+            lines += [
+                "## Dependencies: MISSING",
+                "```",
+                *missing,
+                "```",
+                "Install them first: "
+                + f"`{python} -m pip install "
+                + " ".join(f"'{item}'" for item in missing)
+                + "`",
+                "",
+            ]
+        else:
+            lines += ["## Dependencies: OK", ""]
         environment = _test_environment(directory)
         for title, argv in (
             ("Focused tests", [python, "-m", "unittest", *FOCUSED_TESTS]),

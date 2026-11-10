@@ -52,8 +52,9 @@ on that machine, and nothing here moves or overwrites a database.
 
 1. Install a release tag, not the checkout:
    `~/.venvs/tools/bin/python tools/releases.py install vX.Y.Z --profile HOST`
-   (it explains the activation commands when no units exist yet), and
-   link `~/.local/bin/kp-sync` to the environment's `kp-sync`.
+   (it installs missing dependencies such as `linux-keyctl` from PyPI
+   first, explains the activation commands when no units exist yet),
+   and link `~/.local/bin/kp-sync` to the environment's `kp-sync`.
 2. Write `~/.config/kp-sync/HOST.toml` (mode 0600) from
    [second-laptop.toml](second-laptop.toml) or
    [main-laptop.toml](main-laptop.toml); check it with
