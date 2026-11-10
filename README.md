@@ -21,8 +21,9 @@ It drives existing tools, which the system provides: `keepassxc-cli`
 (verifying and merging), `rclone` (cloud copies), `zenity` or `kdialog`
 (desktop questions and progress), and for remote sessions `sshfs`,
 `sftp-server` and `bwrap`. `kp-sync doctor` uses the `keyctl` command
-from keyutils. [udevmon](https://pypi.org/project/udevmon/) triggers
-synchronization when a key drive is plugged in. Full documentation:
+from keyutils. [udevmon](https://pypi.org/project/udevmon/) 0.7.0 or
+later, installed as its own tool (`pipx install --system-site-packages
+udevmon`), triggers synchronization when a key drive is plugged in. Full documentation:
 <https://kp-sync.readthedocs.io/>.
 
 Create `~/.config/kp-sync/config.toml`, or use `--profile NAME` to load

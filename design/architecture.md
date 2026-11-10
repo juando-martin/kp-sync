@@ -41,8 +41,9 @@ it is handled.
   (`hub_persistent`), and sshfs sessions add a restricted, expiring
   public-key line to `~/.ssh/authorized_keys` (see "Remote hosts").
 - Replace `keepassdb_ops.sh` and `kp-ssh-access.sh` with feature parity (see
-  "Feature parity"); reuse `kp-access` and `keyctl` unchanged and `udevmon` (0.7.0+, which
-  added drop-ins, action `order` and `trigger` for kp-sync);
+  "Feature parity"); reuse `kp-access` unchanged, the kernel keyring
+  through `linux-keyctl` and `udevmon` (0.7.0+, which added drop-ins,
+  action `order` and `trigger` for kp-sync; both on PyPI);
   replace the 2-way `kdbx-merge-review` logic with a 3-way merge engine.
 
 ## Existing pieces
@@ -60,7 +61,7 @@ it is handled.
 
 | Component | Decision |
 |---|---|
-| `keyctl`, `udevmon` | used as dependencies/integrations; kp-sync needs udevmon 0.7.0+ for its drop-in (`config.d/50-kp-sync.toml`) |
+| `linux-keyctl`, `udevmon` | `linux-keyctl` is a Python dependency (the kernel keyring); `udevmon` is a separately installed tool (`pipx install udevmon`, not a dependency or extra: kp-sync only runs its command and reads its configuration), 0.7.0+ for kp-sync's drop-in (`config.d/50-kp-sync.toml`); both are on PyPI |
 | daemon | `kp-sync daemon` as a systemd user service with socket activation and a path unit on the hub; `kp-sync service install daemon --desktop` writes units and desktop entries, then `service enable daemon --now` enables/starts triggers |
 | merge | 3-way engine and review model in `kp_sync/merge.py` (pykeepass), reusing field diff, masking and conflict prompts of `kdbx-merge-review`; review is presented through `kp_sync/ui/`, in a small tkinter window or the terminal |
 | `kdbx-url-sync` | stays in `keepass-attr`, not part of this project |
