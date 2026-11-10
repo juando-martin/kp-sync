@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Run an opt-in confined localhost SFTP diagnostic round trip."""
 
 import getpass

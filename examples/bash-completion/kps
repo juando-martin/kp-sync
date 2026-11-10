@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 # Completion for the kps alias (kp-sync --profile HOST): completes the
 # alias's expansion through kp-sync's argcomplete function.
 source "${BASH_SOURCE[0]%/*}/kp-sync"

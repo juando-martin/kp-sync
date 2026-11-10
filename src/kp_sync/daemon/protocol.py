@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Versioned JSON-lines protocol for daemon socket traffic."""
 
 import json

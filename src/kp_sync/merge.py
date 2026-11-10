@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Perform three-way KeePass merges and safe recovery comparisons."""
 
 import base64

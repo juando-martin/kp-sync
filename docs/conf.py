@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Offline Sphinx configuration; imports never activate a profile."""
 
 from pathlib import Path
@@ -9,6 +11,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "docs" / "_ext"))
 
 project = "kp-sync"
+copyright = "2026, Juan Domingo Martín"
 release = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"][
     "version"
 ]

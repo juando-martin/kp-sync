@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Prepare a key drive for this profile (``kp-sync drive-setup``).
 
 The command never writes a database itself. It checks the plugged

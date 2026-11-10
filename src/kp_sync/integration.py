@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Systemd, desktop-entry, and installation diagnostics for kp-sync."""
 
 from __future__ import annotations

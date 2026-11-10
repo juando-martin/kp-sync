@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Monitor KeePassXC D-Bus ownership without a Python binding."""
 
 from __future__ import annotations

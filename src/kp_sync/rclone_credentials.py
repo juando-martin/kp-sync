@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Private per-profile copy of an externally provided rclone config.
 
 The external file belongs to its provider and is only ever read. kp-sync

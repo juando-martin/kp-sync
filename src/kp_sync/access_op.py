@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Bridge kp-access file-operation requests to the kp-sync daemon."""
 
 import os

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Install Bash completion (``kp-sync completion install``).
 
 Writes kp-sync's argcomplete registration and, for each alias such as
@@ -47,6 +49,8 @@ def alias_script(name: str) -> str:
         raise ValueError(f"invalid alias name: {name!r}")
     function = "_" + name.replace("-", "_") + "_complete"
     return (
+        "# SPDX-License-Identifier: GPL-3.0-or-later\n"
+        "# Copyright (C) 2026 Juan Domingo Martín\n"
         f"# Completion for the {name} alias (kp-sync --profile HOST): "
         "completes the\n"
         "# alias's expansion through kp-sync's argcomplete function.\n"

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Optional persistent ``rclone rcd`` transport for rclone endpoints.
 
 Each rclone call authenticates and resolves its paths again, which costs

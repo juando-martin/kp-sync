@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Run the unit tests in parallel, one process per test module.
 
 Same tests and checks as ``python -m unittest discover -s tests``; each

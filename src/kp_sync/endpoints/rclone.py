@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Google Drive and other cloud endpoints accessed through rclone."""
 
 import hashlib

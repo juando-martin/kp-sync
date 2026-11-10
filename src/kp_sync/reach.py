@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Quick check that a cloud endpoint's server can be reached.
 
 Offline, rclone retries until the endpoint timeout, longer than the

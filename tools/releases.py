@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Cut, install and test kp-sync releases.
 
 Run with the interpreter of the environment kp-sync lives in, for

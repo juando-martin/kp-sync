@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Tests for tools/releases.py, on throwaway repositories and fakes."""
 
 import datetime

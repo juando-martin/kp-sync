@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Submit udevmon drive events to the kp-sync daemon.
 
 This is the KeePass half of the former external ``keydisk.py`` hook. It

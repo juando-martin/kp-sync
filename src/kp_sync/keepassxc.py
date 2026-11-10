@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Read passwords through KeePassXC's optional browser-protocol client.
 
 The association/get-logins flow follows the proxy adapter in ssspwd,

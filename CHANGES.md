@@ -3,6 +3,15 @@
 User-visible changes per release, newest first. Commit history and tags
 hold the details; design decisions live in the `design/` chapters.
 
+## Unreleased
+
+### Changed
+
+- kp-sync is licensed under the GNU General Public License, version 3
+  or later (`LICENSE`); every source file carries an SPDX header, and
+  the package metadata declares `GPL-3.0-or-later`. Building it needs
+  setuptools 77 or later.
+
 ## 0.5.1 (2026-11-10)
 
 ### Added

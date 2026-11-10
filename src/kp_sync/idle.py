@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Skip the timer's idle sync while the cloud is clearly unreachable.
 
 The systemd timer runs ``kp-sync sync --idle`` every

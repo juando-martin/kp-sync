@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Decommission a key drive (``kp-sync drive-retire``).
 
 Decommissioning never needs the drive and never touches its contents.

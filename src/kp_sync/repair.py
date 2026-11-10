@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Inspect and repair retained versions whose bases are missing.
 
 See "Missing bases and repair" in the history design chapter. Preview

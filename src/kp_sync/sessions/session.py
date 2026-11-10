@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Create, run, renew, and clean up remote SSH/SFTP sessions."""
 
 import getpass

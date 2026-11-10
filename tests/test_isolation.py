@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """The suite never sees the real home or runtime directory.
 
 Importing ``tests`` (here, at discovery time) applies the isolation in

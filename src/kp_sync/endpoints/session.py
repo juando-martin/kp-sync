@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """File endpoint specialization for a staged remote-session copy."""
 
 from kp_sync.endpoints.file import FileEndpoint

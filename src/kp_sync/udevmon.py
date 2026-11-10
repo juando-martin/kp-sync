@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Read udevmon's configuration (udevmon 0.7.0+ drop-ins included).
 
 kp-sync keeps its own udevmon devices and actions in one drop-in file,

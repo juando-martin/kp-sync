@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Build reference HTML or preview it on the loopback interface.
 
 Run this script with the interpreter containing the ``docs`` extra.

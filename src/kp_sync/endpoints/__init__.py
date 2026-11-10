@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Endpoint interfaces and file, command, and cloud adapters."""
 
 from kp_sync.endpoints.base import (

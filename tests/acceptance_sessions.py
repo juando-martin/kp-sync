@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Opt-in real SSH/sshfs acceptance.
 
 Uses only the user-provided kp-test profile. Run without other sessions.

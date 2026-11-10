@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Acquire private interprocess flock locks with bounded waiting."""
 
 import fcntl

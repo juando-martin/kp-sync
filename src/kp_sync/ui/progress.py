@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Delayed, non-cancelling Zenity indicator for desktop syncs."""
 
 import subprocess

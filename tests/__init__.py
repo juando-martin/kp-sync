@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """Unit tests for kp-sync.
 
 Importing this package points ``HOME``, the XDG base directories and

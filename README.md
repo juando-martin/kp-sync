@@ -267,3 +267,13 @@ Set `[ui].progress = false` to disable it.
 - `DESIGN.md` indexes the authoritative architecture and safety chapters
   under `design/`, with safety references and task-specific reading guides.
 - `PLAN.md` records implementation status and acceptance work.
+
+## License
+
+kp-sync is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation, either version 3 of the License, or (at your
+option) any later version. It is distributed in the hope that it will be
+useful, but WITHOUT ANY WARRANTY; see [LICENSE](LICENSE) for details.
+
+Copyright (C) 2026 Juan Domingo Martín.

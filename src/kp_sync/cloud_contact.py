@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Juan Domingo Martín
 """When this machine last reached its cloud endpoints.
 
 The engine records, after every run, the time each ``rclone`` endpoint
