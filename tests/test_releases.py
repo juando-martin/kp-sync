@@ -2,14 +2,20 @@
 # Copyright (C) 2026 Juan Domingo Martín
 """Tests for tools/releases.py, on throwaway repositories and fakes."""
 
+import contextlib
 import datetime
+import hashlib
+import io
+import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tools import releases
 
@@ -394,6 +400,144 @@ class InstallTest(unittest.TestCase):
         with self.assertRaisesRegex(releases.ReleaseError, "expected"):
             self.install(run=self.fake_run(version="kp-sync 1.2.3"))
         self.assertEqual(len(self.calls), 2)
+
+
+class PyPITest(unittest.TestCase):
+    """`--pypi`: the verified source package replaces the export."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(
+            dir=os.environ.get("XDG_RUNTIME_DIR")
+        )
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.env = patch.dict(os.environ, {"XDG_RUNTIME_DIR": temp.name})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+
+    def sdist(self, version="1.2.4", inner="1.2.4"):
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            for name, text in (
+                ("pyproject.toml", f'[project]\nversion = "{inner}"\n'),
+                ("src/kp_sync/__init__.py", "__version__ = 'x'\n"),
+            ):
+                data = text.encode()
+                info = tarfile.TarInfo(f"kp_sync-{version}/{name}")
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+        return buffer.getvalue()
+
+    def opener(self, data, *, sha256=None, sdist=True, fail=None):
+        index = {
+            "urls": [
+                {"packagetype": "bdist_wheel", "url": "w", "digests": {}},
+                *(
+                    [
+                        {
+                            "packagetype": "sdist",
+                            "url": "https://files.example/s.tar.gz",
+                            "digests": {
+                                "sha256": sha256
+                                or hashlib.sha256(data).hexdigest()
+                            },
+                        }
+                    ]
+                    if sdist
+                    else []
+                ),
+            ]
+        }
+        self.urls = []
+
+        def opener(url, timeout):
+            self.urls.append(url)
+            if fail is not None:
+                raise fail
+            body = json.dumps(index).encode() if "pypi.org" in url else data
+            return contextlib.closing(io.BytesIO(body))
+
+        return opener
+
+    def test_fetch_unpacks_like_an_export(self):
+        data = self.sdist()
+        directory = releases.fetch_pypi("v1.2.4", opener=self.opener(data))
+        self.addCleanup(shutil.rmtree, directory)
+        self.assertEqual(
+            self.urls[0], "https://pypi.org/pypi/kp-sync/1.2.4/json"
+        )
+        self.assertTrue((directory / "pyproject.toml").is_file())
+        self.assertTrue((directory / "src/kp_sync/__init__.py").is_file())
+        self.assertEqual(directory.parent, self.root)
+
+    def test_fetch_refuses_bad_packages_and_leaves_nothing(self):
+        data = self.sdist()
+        cases = (
+            ("1.2", self.opener(data), "X.Y.Z"),
+            ("1.2.4", self.opener(data, sha256="0" * 64), "checksum"),
+            ("1.2.4", self.opener(data, sdist=False), "no source package"),
+            ("1.2.4", self.opener(data, fail=OSError("404")), "cannot fetch"),
+            (
+                "1.2.4",
+                self.opener(self.sdist(inner="9.9.9")),
+                "version mismatch",
+            ),
+        )
+        for version, opener, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(releases.ReleaseError, message):
+                    releases.fetch_pypi(version, opener=opener)
+                self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_install_and_test_take_the_pypi_source(self):
+        fetched = []
+
+        def fetch(version, **kwargs):
+            fetched.append(version)
+            directory = self.root / f"src-{len(fetched)}"
+            directory.mkdir()
+            (directory / "pyproject.toml").write_text(PYPROJECT)
+            return directory
+
+        def export(*args, **kwargs):
+            raise AssertionError("no Git export with --pypi")
+
+        def run(argv, **kwargs):
+            if "--version" in argv:
+                return subprocess.CompletedProcess(
+                    argv, 0, "kp-sync 1.2.4\n", ""
+                )
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with (
+            patch.object(releases, "fetch_pypi", fetch),
+            patch.object(releases, "export", export),
+        ):
+            done = releases.install(
+                "1.2.4",
+                profile="alpha",
+                home=self.root,
+                python=str(self.root / "venv/bin/python"),
+                run=run,
+                pypi=True,
+            )
+            self.assertIn("installed kp-sync 1.2.4", done[0])
+            report = self.root / "report.md"
+            releases.test(
+                "1.2.4", report=report, profile="alpha", run=run, pypi=True
+            )
+        self.assertEqual(fetched, ["1.2.4", "1.2.4"])
+        self.assertTrue(report.is_file())
+
+    def test_command_line_passes_pypi(self):
+        with patch.object(releases, "install", return_value=[]) as install:
+            self.assertEqual(
+                releases.main(
+                    ["install", "0.6.0", "--pypi", "--profile", "z"]
+                ),
+                0,
+            )
+        self.assertTrue(install.call_args.kwargs["pypi"])
 
 
 class TestReportTest(unittest.TestCase):

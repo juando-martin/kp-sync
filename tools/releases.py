@@ -28,7 +28,9 @@ of these commands contacts endpoints or reads credentials, except that
 
 import argparse
 import datetime
+import hashlib
 import io
+import json
 import os
 import re
 import shutil
@@ -38,6 +40,7 @@ import sys
 import tarfile
 import tempfile
 import tomllib
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -184,6 +187,68 @@ def export(tag: str, repo: Path, *, run=subprocess.run) -> Path:
     return directory
 
 
+PYPI_JSON = "https://pypi.org/pypi/kp-sync/{version}/json"
+
+
+def fetch_pypi(version: str, *, opener=urllib.request.urlopen) -> Path:
+    """Download kp-sync ``version``'s source package from PyPI.
+
+    Verifies its SHA-256 against PyPI's and unpacks it into a new
+    private runtime directory, laid out like :func:`export`'s.
+
+    Raises:
+        ReleaseError: If the version is unknown, has no source package,
+            fails its checksum or is not a kp-sync source tree.
+    """
+    version = version.removeprefix("v")
+    if not VERSION.fullmatch(version):
+        raise ReleaseError("version must look like X.Y.Z")
+    try:
+        with opener(PYPI_JSON.format(version=version), timeout=30) as reply:
+            files = json.load(reply).get("urls") or []
+        sdist = next(f for f in files if f.get("packagetype") == "sdist")
+        with opener(sdist["url"], timeout=300) as reply:
+            data = reply.read()
+    except StopIteration:
+        raise ReleaseError(f"PyPI has no source package of kp-sync {version}")
+    except (OSError, ValueError, KeyError) as exc:
+        raise ReleaseError(
+            f"cannot fetch kp-sync {version} from PyPI: {exc}"
+        ) from exc
+    if hashlib.sha256(data).hexdigest() != sdist.get("digests", {}).get(
+        "sha256"
+    ):
+        raise ReleaseError(f"kp-sync {version} from PyPI fails its checksum")
+    base = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
+    directory = Path(
+        tempfile.mkdtemp(prefix=f"kp-sync-v{version}-pypi.", dir=base)
+    )
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as source:
+            source.extractall(directory, filter="data")
+        roots = [path for path in directory.iterdir() if path.is_dir()]
+        if len(roots) != 1 or not (roots[0] / "pyproject.toml").is_file():
+            raise ReleaseError(f"kp-sync {version}: unexpected source package")
+        for path in roots[0].iterdir():
+            path.rename(directory / path.name)
+        roots[0].rmdir()
+        project = tomllib.loads((directory / "pyproject.toml").read_text())
+        if project["project"].get("version") != version:
+            raise ReleaseError(f"kp-sync {version}: version mismatch inside")
+    except (OSError, tarfile.TarError, tomllib.TOMLDecodeError) as exc:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise ReleaseError(f"cannot unpack kp-sync {version}: {exc}") from exc
+    except ReleaseError:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
+    return directory
+
+
+def _source(tag: str, repo: Path, pypi: bool, run) -> Path:
+    """The release's source tree: a Git export, or PyPI's package."""
+    return fetch_pypi(tag) if pypi else export(tag, repo, run=run)
+
+
 def _requirements(directory: Path) -> list[str]:
     """The runtime dependencies the release declares in pyproject."""
     text = (directory / "pyproject.toml").read_text(encoding="utf-8")
@@ -284,8 +349,13 @@ def install(
     home: Path | None = None,
     python: str = sys.executable,
     run=subprocess.run,
+    pypi: bool = False,
 ) -> list[str]:
-    """Install ``tag`` and refresh ``profile``; return what was done."""
+    """Install ``tag`` and refresh ``profile``; return what was done.
+
+    With ``pypi``, ``tag`` is a version (``X.Y.Z`` or ``vX.Y.Z``) taken
+    from PyPI's source package instead of the Git repository.
+    """
     home = home or Path.home()
     done = []
     # Build in place when the environment has setuptools; otherwise
@@ -297,7 +367,7 @@ def install(
         ).returncode
         == 0
     )
-    directory = export(tag, repo, run=run)
+    directory = _source(tag, repo, pypi, run)
     try:
         # Dependencies first, so a failure leaves kp-sync untouched; the
         # release itself stays --no-deps, which never upgrades others.
@@ -392,8 +462,9 @@ def test(
     repo: Path = ROOT,
     python: str = sys.executable,
     run=subprocess.run,
+    pypi: bool = False,
 ) -> bool:
-    """Test ``tag`` from an export, write ``report``, return success."""
+    """Test ``tag`` (exported, or from PyPI); write ``report``."""
     lines = [
         f"# kp-sync {tag} test report ({socket.gethostname()}, "
         f"{datetime.date.today().isoformat()})",
@@ -401,7 +472,7 @@ def test(
     ]
     ok = True
     before = _daemon_state(profile, run)
-    directory = export(tag, repo, run=run)
+    directory = _source(tag, repo, pypi, run)
     try:
         lines += ["## Environment", "```"]
         for argv in (
@@ -490,7 +561,7 @@ def main(argv=None) -> int:
     cut.add_argument("summary")
     cut.add_argument("--full-tests", action="store_true")
     put = commands.add_parser("install", help="install a tag")
-    put.add_argument("tag")
+    put.add_argument("tag", help="vX.Y.Z tag (a version with --pypi)")
     put.add_argument(
         "--profile",
         default=socket.gethostname().split(".")[0],
@@ -498,7 +569,7 @@ def main(argv=None) -> int:
     )
     put.add_argument("--no-restart", action="store_true")
     check = commands.add_parser("test", help="test a tag, write a report")
-    check.add_argument("tag")
+    check.add_argument("tag", help="vX.Y.Z tag (a version with --pypi)")
     check.add_argument("--report", type=Path, required=True)
     check.add_argument(
         "--profile",
@@ -507,6 +578,13 @@ def main(argv=None) -> int:
     )
     for command in (cut, put, check):
         command.add_argument("--repo", type=Path, default=ROOT)
+    for command in (put, check):
+        command.add_argument(
+            "--pypi",
+            action="store_true",
+            help="take the release from PyPI (its verified source package) "
+            "instead of the Git repository",
+        )
     args = parser.parse_args(argv)
     try:
         if args.command == "release":
@@ -523,6 +601,7 @@ def main(argv=None) -> int:
                 profile=args.profile,
                 repo=args.repo,
                 restart=not args.no_restart,
+                pypi=args.pypi,
             ):
                 print(line)
         else:
@@ -531,6 +610,7 @@ def main(argv=None) -> int:
                 report=args.report,
                 profile=args.profile,
                 repo=args.repo,
+                pypi=args.pypi,
             )
             print(f"{'PASS' if ok else 'FAIL'}: report in {args.report}")
             return 0 if ok else 1

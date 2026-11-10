@@ -5,7 +5,27 @@ hold the details; design decisions live in the `design/` chapters.
 
 ## Unreleased
 
+### Added
+
+- kp-sync is published on PyPI (`pipx install kp-sync`, or
+  `pip install kp-sync`; extra `keepassxc`), with documentation on Read
+  the Docs. The README lists the external tools it drives.
+- `tools/releases.py install --pypi X.Y.Z` and `test --pypi X.Y.Z` take
+  the release from PyPI's source package (its SHA-256 checked against
+  PyPI's) instead of a Git tag, with the same dependency handling, unit
+  refresh and daemon restart.
+
 ### Changed
+
+- The kernel keyring is reached through `linux-keyctl` (GPL-3.0-or-later,
+  on PyPI), which replaces the private `keyctl` module; every version in
+  the repository's history now declares it. Install it before running
+  this version from a source tree.
+- `tools/releases.py install` installs a release's missing dependencies
+  first (plain pip, never upgrading satisfied ones; on failure it stops
+  before touching kp-sync) and refuses to restart the daemon when
+  `pip check` reports kp-sync's requirements broken. `test` reports
+  missing dependencies first.
 
 - kp-sync is licensed under the GNU General Public License, version 3
   or later (`LICENSE`), and so are all earlier versions: the license
