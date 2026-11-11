@@ -13,7 +13,8 @@ hold the details; design decisions live in the `design/` chapters.
 - `tools/releases.py install --pypi X.Y.Z` and `test --pypi X.Y.Z` take
   the release from PyPI's source package (its SHA-256 checked against
   PyPI's) instead of a Git tag, with the same dependency handling, unit
-  refresh and daemon restart.
+  refresh and daemon restart. "Updating a machine from PyPI" in
+  `examples/README.md` uses them without a checkout.
 
 ### Changed
 
@@ -26,7 +27,8 @@ hold the details; design decisions live in the `design/` chapters.
   before touching kp-sync) and refuses to restart the daemon when
   `pip check` reports kp-sync's requirements broken. `test` reports
   missing dependencies first.
-
+- udevmon is installed as its own tool from PyPI (`pipx install
+  --system-site-packages udevmon`), not as a kp-sync dependency.
 - kp-sync is licensed under the GNU General Public License, version 3
   or later (`LICENSE`), and so are all earlier versions: the license
   file is part of every version in the repository's history.
@@ -35,6 +37,13 @@ hold the details; design decisions live in the `design/` chapters.
   copyright line, and `tests/test_license.py` keeps new files compliant.
 - The package metadata declares `GPL-3.0-or-later`; building kp-sync
   needs setuptools 77 or later.
+
+### Fixed
+
+- On Python 3.11, `kp-sync drive-sync up --mode M --drive-id ID
+  MOUNTPOINT` (the command udevmon runs) failed with "unrecognized
+  arguments": argparse there cannot fill an optional positional after
+  options. The mount point is now taken on every supported Python.
 
 ## 0.5.1 (2026-11-10)
 
@@ -56,10 +65,6 @@ hold the details; design decisions live in the `design/` chapters.
 
 ### Fixed
 
-- On Python 3.11, `kp-sync drive-sync up --mode M --drive-id ID
-  MOUNTPOINT` (the command udevmon runs) failed with "unrecognized
-  arguments": argparse there cannot fill an optional positional after
-  options. The mount point is now taken on every supported Python.
 - Notices from a sync run by the daemon (a decommissioned or damaged
   key drive, a stale-cache save, a rejected password) now appear as
   desktop notifications while `[ui] notify` is true; they were only
