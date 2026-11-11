@@ -50,13 +50,13 @@ The `rclone-config` helper and its drop-in (`udevmon.toml.example`, to
 The steps used for `beta` and `alpha`; each needs the owner's approval
 on that machine, and nothing here moves or overwrites a database.
 
-1. Install a release tag, not the checkout:
-   `~/.venvs/tools/bin/python tools/releases.py install vX.Y.Z --profile HOST`
-   (`install --pypi X.Y.Z` takes the release from PyPI instead of a
-   checkout; either way it installs missing dependencies such as
-   `linux-keyctl` from PyPI first and explains the activation commands
-   when no units exist yet),
-   and link `~/.local/bin/kp-sync` to the environment's `kp-sync`.
+1. Install a release from PyPI with its own release tool (see
+   "Updating a machine from PyPI" below; on the development machine
+   `tools/releases.py install vX.Y.Z --profile HOST` from a checkout
+   does the same with a Git tag). It installs missing dependencies such
+   as `linux-keyctl` first and explains the activation commands when no
+   units exist yet. Link `~/.local/bin/kp-sync` to the environment's
+   `kp-sync`.
 2. Write `~/.config/kp-sync/HOST.toml` (mode 0600) from
    [second-laptop.toml](second-laptop.toml) or
    [main-laptop.toml](main-laptop.toml); check it with
@@ -89,6 +89,35 @@ on that machine, and nothing here moves or overwrites a database.
    `udevmon reload`, then `udevmon trigger NAME` for a drive that is
    already plugged in), add `alias kps='kp-sync --profile HOST'` to
    `~/.bashrc` and run `kp-sync completion install --alias kps`.
+
+## Updating a machine from PyPI
+
+No checkout is needed: each release's source package on PyPI carries
+its release tool, which takes the release from PyPI again (checking its
+SHA-256 against PyPI's), tests it, installs missing dependencies first,
+installs kp-sync without touching other packages, refreshes the units
+and restarts the daemon. With `PY` the environment's Python (for
+example `~/.venvs/tools/bin/python`), `X.Y.Z` the release and `HOST` the
+profile:
+
+```sh
+d=$(mktemp -d -p "$XDG_RUNTIME_DIR")
+PY -m pip download -q --no-deps --no-binary :all: --dest "$d" kp-sync==X.Y.Z
+tar -xzf "$d"/kp_sync-X.Y.Z.tar.gz -C "$d"
+PY "$d"/kp_sync-X.Y.Z/tools/releases.py test --pypi X.Y.Z --profile HOST \
+    --report "$d"/test-report.md      # expect PASS; read the report
+PY "$d"/kp_sync-X.Y.Z/tools/releases.py install --pypi X.Y.Z --profile HOST
+kp-sync --version                     # expect kp-sync X.Y.Z
+kp-sync --profile HOST status         # unchanged; 0 pending
+rm -rf "$d"
+```
+
+Quit KeePassXC before `install`; it restarts the daemon. Without the
+release tool, `PY -m pip install kp-sync==X.Y.Z` followed by
+`kp-sync --profile HOST service install daemon --desktop` and
+`kp-sync --profile HOST service restart daemon` has the same effect,
+without the tests and checks. Rolling back is the same procedure with
+the previous version.
 
 ## Starting a new database or adopting an existing one
 
