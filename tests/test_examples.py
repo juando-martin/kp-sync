@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Juan Domingo Martín
+import contextlib
+import io
 import tempfile
 import tomllib
 import unittest
@@ -28,6 +30,37 @@ class ExampleTest(unittest.TestCase):
                         path, environ={"HOME": home, "XDG_RUNTIME_DIR": home}
                     )
                 self.assertTrue(config.endpoints)
+
+    def test_trailing_mountpoint_is_filled_where_argparse_leaves_it(self):
+        # Python 3.11's argparse leaves a mountpoint after options
+        # unparsed; simulate that result and check the fallback.
+        import argparse
+        from unittest.mock import patch
+
+        parser = _build_parser()
+        left = argparse.Namespace(command="drive-sync", mountpoint=None)
+        with patch.object(
+            argparse.ArgumentParser,
+            "parse_known_args",
+            return_value=(left, ["/media/key"]),
+        ):
+            self.assertEqual(parser.parse_args([]).mountpoint, "/media/key")
+        for extra in (["--bogus"], ["/a", "/b"]):
+            with (
+                self.subTest(extra=extra),
+                patch.object(
+                    argparse.ArgumentParser,
+                    "parse_known_args",
+                    return_value=(argparse.Namespace(mountpoint=None), extra),
+                ),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                with self.assertRaises(SystemExit):
+                    parser.parse_args([])
+        args = parser.parse_args(
+            ["drive-sync", "up", "--mode", "main", "--drive-id", "S:U", "/m"]
+        )
+        self.assertEqual(args.mountpoint, "/m")
 
     def test_udevmon_kp_sync_actions_parse_and_keep_their_order(self):
         parser = _build_parser()

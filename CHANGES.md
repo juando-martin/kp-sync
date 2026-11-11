@@ -56,6 +56,10 @@ hold the details; design decisions live in the `design/` chapters.
 
 ### Fixed
 
+- On Python 3.11, `kp-sync drive-sync up --mode M --drive-id ID
+  MOUNTPOINT` (the command udevmon runs) failed with "unrecognized
+  arguments": argparse there cannot fill an optional positional after
+  options. The mount point is now taken on every supported Python.
 - Notices from a sync run by the daemon (a decommissioned or damaged
   key drive, a stale-cache save, a rejected password) now appear as
   desktop notifications while `[ui] notify` is true; they were only

@@ -1,5 +1,7 @@
 # Style, tests and the strict documentation build on every push and pull
-# request. Tests needing bwrap or sshd skip on the runner.
+# request. Tests needing bwrap or sshd skip on the runner. Tests run with a
+# private TMPDIR: installs refuse paths below a group- or world-writable
+# directory such as /tmp, as they must on a real machine.
 name: CI
 
 on:
@@ -17,10 +19,15 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Private temporary directory
+        run: |
+          mkdir -p -m 700 "$HOME/kp-sync-tmp"
+          echo "TMPDIR=$HOME/kp-sync-tmp" >> "$GITHUB_ENV"
+          stat -c '%a %U %n' / /home "$HOME" "$HOME/kp-sync-tmp"
       - name: System tools (keepassxc-cli for the compatibility tests)
         run: sudo apt-get update && sudo apt-get install -y keepassxc
       - name: Install

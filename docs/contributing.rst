@@ -47,12 +47,17 @@ Run the isolated unit suite with the package dependencies available::
 
    TMPDIR="$XDG_RUNTIME_DIR" PYTHONPATH=src python -m unittest discover -s tests
 
+``TMPDIR`` must be a private directory with no group- or world-writable
+directory above it: installs refuse such paths, so the installation tests
+fail under ``/tmp``. Where ``XDG_RUNTIME_DIR`` is unset (as on CI), create
+one, for example ``mkdir -m 700 ~/kp-sync-tmp``.
+
 Tests use synthetic data, fake endpoints, and isolated runtime directories.
 Optional local compatibility tools may cause skips. The real-cloud acceptance
 harness is separate and must not run as part of documentation validation.
 Never restart a production daemon merely to test documentation changes.
 
-Keep README, man pages, examples, DESIGN, PLAN and the handoff consistent.
+Keep README, man pages, examples, DESIGN and PLAN consistent.
 DESIGN is the decision record; PLAN records evidence and approval status.
 Generate API reference from docstrings and command help from argparse.
 Do not commit generated HTML or duplicate the authoritative design in prose.

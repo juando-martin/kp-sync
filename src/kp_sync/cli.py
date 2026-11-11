@@ -52,8 +52,29 @@ COMMANDS = (
 )
 
 
+class _Parser(argparse.ArgumentParser):
+    """Fill a trailing optional ``mountpoint`` on every Python version.
+
+    Before 3.12, argparse cannot fill an optional positional that comes
+    after options, so udevmon's ``drive-sync up --mode M --drive-id ID
+    MOUNTPOINT`` failed with "unrecognized arguments: MOUNTPOINT".
+    """
+
+    def parse_args(self, args=None, namespace=None):
+        parsed, extra = self.parse_known_args(args, namespace)
+        if (
+            len(extra) == 1
+            and not extra[0].startswith("-")
+            and getattr(parsed, "mountpoint", "") is None
+        ):
+            parsed.mountpoint, extra = extra[0], []
+        if extra:
+            self.error(f"unrecognized arguments: {' '.join(extra)}")
+        return parsed
+
+
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog="kp-sync",
         description="Synchronize a KeePass database across trusted copies.",
     )
